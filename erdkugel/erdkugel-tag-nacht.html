@@ -75,13 +75,72 @@
       z-index: 4;
     }
 
-    .pin-label {
+    .pin-marker {
       position: absolute;
       left: 0;
       top: 0;
+      pointer-events: none;
+      transform: translate3d(-9999px, -9999px, 0);
+      will-change: transform, opacity;
+      transition: opacity 0.14s ease;
+    }
+
+    .pin-point {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--pin-red);
+      border: 2px solid #ffffff;
+      box-shadow: 0 0 0 1.5px rgba(4, 8, 18, 0.78), 0 2px 8px rgba(0, 0, 0, 0.65);
+      transform: translate(-50%, -50%);
+      pointer-events: auto;
+      cursor: pointer;
+    }
+
+    .pin-point::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: #ffffff;
+      transform: translate(-50%, -50%);
+    }
+
+    .pin-pulse {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid var(--pin-red);
+      transform: translate(-50%, -50%) scale(1);
+      opacity: 0.9;
+      pointer-events: none;
+      animation: pinPulse 0.65s ease-out forwards;
+    }
+
+    @keyframes pinPulse {
+      to {
+        transform: translate(-50%, -50%) scale(2.8);
+        opacity: 0;
+      }
+    }
+
+    .pin-label {
+      position: absolute;
+      left: 10px;
+      top: 0;
+      transform: translateY(-50%);
       padding: 3px 8px;
       border-radius: 999px;
-      background: rgba(8, 14, 26, 0.78);
+      background: rgba(8, 14, 26, 0.8);
       border: 1px solid rgba(255, 255, 255, 0.18);
       color: var(--text);
       font-size: 12.5px;
@@ -91,9 +150,6 @@
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
       pointer-events: auto;
       cursor: pointer;
-      transform: translate3d(-9999px, -9999px, 0);
-      will-change: transform, opacity;
-      transition: opacity 0.15s ease;
     }
 
     .line-label {
@@ -1157,6 +1213,9 @@
       }
     `;
 
+    const earthGroup = new THREE.Group();
+    scene.add(earthGroup);
+
     const earthGeo = new THREE.SphereGeometry(1, 96, 64);
     const earthMat = new THREE.ShaderMaterial({
       uniforms: earthUniforms,
@@ -1164,7 +1223,7 @@
       fragmentShader: earthFragmentShader,
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
-    scene.add(earthMesh);
+    earthGroup.add(earthMesh);
 
     // Äusserer Atmosphären-Halo
     const atmosGeo = new THREE.SphereGeometry(1.032, 64, 48);
@@ -1273,7 +1332,7 @@
     // 4. Hybrides Esri-Satellitenkachel-Overlay (Zoom z=3..10, LRU<=36)
     // ------------------------------------------------------------
     const tilesGroup = new THREE.Group();
-    scene.add(tilesGroup);
+    earthGroup.add(tilesGroup);
 
     const MAX_TILE_CACHE = 36;
     const MAX_CONCURRENT_TILES = 4;
@@ -1504,6 +1563,8 @@
     }
 
     const _rayVec = new THREE.Vector3();
+    const _invEarthQuat = new THREE.Quaternion();
+    const _camDirLocal = new THREE.Vector3();
     function updateSatelliteTiles(nowMs, camDist) {
       if (camDist >= 2.35) {
         tilesGroup.visible = false;
@@ -1516,10 +1577,11 @@
 
       const z = computeDesiredZoom(camDist);
       const n = Math.pow(2, z);
-      const camDir = camera.position.clone().normalize();
+      _invEarthQuat.copy(earthGroup.quaternion).invert();
+      _camDirLocal.copy(camera.position).applyQuaternion(_invEarthQuat).normalize();
       const candidates = new Map();
 
-      // Sichtbare Oberflächenpunkte über 7x7 Bildschirm-Strahlen auf Einheitskugel bestimmen
+      // Sichtbare Oberflächenpunkte über 7x7 Bildschirm-Strahlen auf rotierter Einheitskugel bestimmen
       const camOrigin = camera.position;
       const ocSq = camOrigin.lengthSq();
       const gridSteps = 7;
@@ -1535,8 +1597,8 @@
           if (disc < 0) continue;
           const t = -b - Math.sqrt(disc);
           if (t <= 0) continue;
-          const hit = camOrigin.clone().addScaledVector(_rayVec, t);
-          const { lat, lon } = vec3ToLatLon(hit);
+          const hitLocal = camOrigin.clone().addScaledVector(_rayVec, t).applyQuaternion(_invEarthQuat);
+          const { lat, lon } = vec3ToLatLon(hitLocal);
           if (Math.abs(lat) > 84.5) continue;
 
           const baseTile = latLonToTile(lat, lon, z);
@@ -1547,7 +1609,7 @@
               const tx = (baseTile.x + dx + n) % n;
               const center = tileCenterVec3(z, tx, ty);
               if (Math.abs(center.latDeg) > 84.5) continue;
-              const align = center.vec.dot(camDir);
+              const align = center.vec.dot(_camDirLocal);
               if (align < 1.0 / camDist - 0.35) continue;
               const key = `${z}/${tx}/${ty}`;
               if (!candidates.has(key)) {
@@ -1609,50 +1671,10 @@
     }
 
     // ------------------------------------------------------------
-    // 5. 3D-Stecknadeln, Geografie-Linien & Erdachse + Sonnenpfeil
+    // 5. Oberflächen-Marker, Geografie-Linien & Erdachse + Sonnenpfeil
     // ------------------------------------------------------------
-    const pinsGroup = new THREE.Group();
-    scene.add(pinsGroup);
-
-    // Licht für 3D-Stecknadeln und Achsen-Kegel
-    const ambientLight = new THREE.AmbientLight(0xdce8ff, 0.75);
-    scene.add(ambientLight);
-    const sunDirLight = new THREE.DirectionalLight(0xfff4dd, 1.35);
-    scene.add(sunDirLight);
-
     const activePins = [];
     let nextPinId = 1;
-
-    // Gemeinsame Stecknadel-Geometrien & Materialien
-    const pinFootGeo = new THREE.CircleGeometry(0.009, 16);
-    pinFootGeo.rotateX(-Math.PI / 2);
-    const pinFootMat = new THREE.MeshBasicMaterial({
-      color: 0x04070d,
-      transparent: true,
-      opacity: 0.45,
-      depthWrite: false,
-    });
-    const pinShaftGeo = new THREE.CylinderGeometry(0.0022, 0.0009, 0.052, 10);
-    pinShaftGeo.translate(0, 0.026, 0);
-    const pinShaftMat = new THREE.MeshStandardMaterial({
-      color: 0xe6edf8,
-      emissive: 0x3b4454,
-      emissiveIntensity: 0.45,
-      metalness: 0.75,
-      roughness: 0.25,
-    });
-    const pinHeadGeo = new THREE.SphereGeometry(0.0135, 18, 14);
-    pinHeadGeo.translate(0, 0.058, 0);
-    const pinHeadMat = new THREE.MeshStandardMaterial({
-      color: 0xee533b,
-      emissive: 0x6b180b,
-      emissiveIntensity: 0.58,
-      roughness: 0.28,
-      metalness: 0.12,
-    });
-    const pinPickGeo = new THREE.SphereGeometry(0.036, 10, 8);
-    pinPickGeo.translate(0, 0.04, 0);
-    const pinPickMat = new THREE.MeshBasicMaterial({ visible: false });
 
     const pinsBar = document.getElementById('pins-bar');
     const upAxis = new THREE.Vector3(0, 1, 0);
@@ -1697,21 +1719,22 @@
       }
 
       const id = nextPinId++;
-      const normal = latLonToVec3(place.lat, place.lon, 1).normalize();
-      const group = new THREE.Group();
-      group.position.copy(normal).multiplyScalar(1.001);
-      group.quaternion.setFromUnitVectors(upAxis, normal);
+      const localNormal = latLonToVec3(place.lat, place.lon, 1).normalize();
 
-      const foot = new THREE.Mesh(pinFootGeo, pinFootMat);
-      foot.position.y = 0.0004;
-      const shaft = new THREE.Mesh(pinShaftGeo, pinShaftMat);
-      const head = new THREE.Mesh(pinHeadGeo, pinHeadMat);
-      const pick = new THREE.Mesh(pinPickGeo, pinPickMat);
-      pick.userData.pinId = id;
-      head.userData.pinId = id;
+      const markerEl = document.createElement('div');
+      markerEl.className = 'pin-marker';
+      markerEl.style.opacity = '0';
 
-      group.add(foot, shaft, head, pick);
-      pinsGroup.add(group);
+      const pulseEl = document.createElement('div');
+      pulseEl.className = 'pin-pulse';
+      pulseEl.addEventListener('animationend', () => pulseEl.remove());
+
+      const pointEl = document.createElement('div');
+      pointEl.className = 'pin-point';
+      pointEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        flyToLatLon(place.lat, place.lon, Math.min(camDist, 1.9));
+      });
 
       const labelEl = document.createElement('button');
       labelEl.type = 'button';
@@ -1721,17 +1744,19 @@
         e.stopPropagation();
         flyToLatLon(place.lat, place.lon, Math.min(camDist, 1.9));
       });
-      labelsLayer.appendChild(labelEl);
+
+      markerEl.append(pulseEl, pointEl, labelEl);
+      labelsLayer.appendChild(markerEl);
 
       const pin = {
         id,
         name: place.name,
         lat: place.lat,
         lon: place.lon,
-        normal,
-        group,
+        localNormal,
+        markerEl,
+        pointEl,
         labelEl,
-        createdAt: performance.now(),
       };
       activePins.push(pin);
       renderPinsBar();
@@ -1743,15 +1768,14 @@
       const idx = activePins.findIndex((p) => p.id === pinId);
       if (idx === -1) return;
       const [pin] = activePins.splice(idx, 1);
-      pinsGroup.remove(pin.group);
-      pin.labelEl.remove();
+      pin.markerEl.remove();
       renderPinsBar();
     }
 
     // Geografie-Linien (Polarkreise, Wendekreise, Äquator)
     const linesGroup = new THREE.Group();
     linesGroup.visible = false;
-    scene.add(linesGroup);
+    earthGroup.add(linesGroup);
 
     const LINE_DEFS = [
       { lat: 66.564, text: '66,5° N', cls: 'arctic', color: 0x67d5fa, dashed: true, dash: 0.024, gap: 0.015 },
@@ -1904,19 +1928,24 @@
     const btnMode = document.getElementById('btn-mode');
     const presetButtons = Array.from(document.querySelectorAll('.preset-btn[data-month]'));
 
-    function updateTimeReadoutAndSun(adjustCamForSun) {
-      const prevLon = currentSun.subsolarLon;
+    function updateTimeReadoutAndSun(mode) {
+      const prevRotDeg = -currentSun.subsolarLon;
       const utcDate = stateToUtcDate(simYear, simDayOfYear, simMezMinutes);
       currentSun = computeSunPosition(utcDate);
 
-      if (adjustCamForSun && followSun) {
-        const dLon = shortestLonDelta(prevLon, currentSun.subsolarLon);
-        camLon = wrapLon(camLon + dLon);
+      const newRotDeg = -currentSun.subsolarLon;
+      earthGroup.rotation.y = newRotDeg * RAD;
+
+      // Im Modus "Erde dreht" (followSun=true) bleiben Kamera & Sternenhintergrund fest im Raum!
+      // Im Modus "Erde fix" (followSun=false) oder bei reinem Datumswechsel folgt die Kamera der Kontinentlänge.
+      if (mode === 'date' || (mode === 'time' && !followSun)) {
+        const dRot = shortestLonDelta(prevRotDeg, newRotDeg);
+        camWorldLon = wrapLon(camWorldLon + dRot);
       }
 
-      earthUniforms.sunDir.value.copy(currentSun.sunDir);
-      sunDirLight.position.copy(currentSun.sunDir).multiplyScalar(10);
-      sunArrowGroup.quaternion.setFromUnitVectors(upAxis, currentSun.sunDir);
+      const sunDirWorld = latLonToVec3(currentSun.subsolarLat, 0, 1).normalize();
+      earthUniforms.sunDir.value.copy(sunDirWorld);
+      sunArrowGroup.quaternion.setFromUnitVectors(upAxis, sunDirWorld);
 
       // UI-Anzeigen aktualisieren
       const totalMin = Math.round(simMezMinutes);
@@ -1940,18 +1969,18 @@
 
     timeSlider.addEventListener('input', () => {
       simMezMinutes = Number(timeSlider.value);
-      updateTimeReadoutAndSun(true);
+      updateTimeReadoutAndSun('time');
     });
 
     dateSlider.addEventListener('input', () => {
       simDayOfYear = Number(dateSlider.value);
-      updateTimeReadoutAndSun(false);
+      updateTimeReadoutAndSun('date');
     });
 
     for (const btn of presetButtons) {
       btn.addEventListener('click', () => {
         simDayOfYear = dayOfYearFromMonthDay(simYear, Number(btn.dataset.month), Number(btn.dataset.day));
-        updateTimeReadoutAndSun(false);
+        updateTimeReadoutAndSun('date');
       });
     }
 
@@ -1963,7 +1992,7 @@
           (Date.UTC(simYear, nowMez.getUTCMonth(), nowMez.getUTCDate()) - Date.UTC(simYear, 0, 1)) / 86400000
         ) + 1;
       simMezMinutes = nowMez.getUTCHours() * 60 + nowMez.getUTCMinutes() + nowMez.getUTCSeconds() / 60;
-      updateTimeReadoutAndSun(false);
+      updateTimeReadoutAndSun('date');
     });
 
     function setPlaying(next) {
@@ -2018,22 +2047,23 @@
     // 7. iPad Touch-Orbit, Trägheit, Pinch-Zoom & Fly-To
     // ------------------------------------------------------------
     let camLat = 36;
-    let camLon = 12;
+    let camWorldLon = 12;
     let camDist = 2.85;
     let velLat = 0;
     let velLon = 0;
 
     let flyAnim = null;
 
-    function flyToLatLon(targetLat, targetLon, targetDist) {
+    function flyToLatLon(geoLat, geoLon, targetDist) {
       velLat = 0;
       velLon = 0;
+      const startGeoLon = wrapLon(camWorldLon - earthGroup.rotation.y * DEG);
       flyAnim = {
         startLat: camLat,
-        startLon: camLon,
+        startGeoLon,
         startDist: camDist,
-        targetLat: clamp(targetLat, -89.5, 89.5),
-        targetLon: wrapLon(targetLon),
+        targetGeoLat: clamp(geoLat, -89.5, 89.5),
+        targetGeoLon: wrapLon(geoLon),
         targetDist: clamp(targetDist, 1.035, 4.2),
         startTime: performance.now(),
         duration: 850,
@@ -2042,11 +2072,7 @@
 
     const pointers = new Map();
     let prevSingle = null;
-    let downSingle = null;
-    let movedSinceDown = false;
     let prevPinchDist = null;
-
-    const raycaster = new THREE.Raycaster();
 
     // iOS Safari native Gesten auf Stage unterbinden
     for (const evt of ['gesturestart', 'gesturechange', 'gestureend']) {
@@ -2061,8 +2087,6 @@
 
       if (pointers.size === 1) {
         prevSingle = { x: e.clientX, y: e.clientY };
-        downSingle = { x: e.clientX, y: e.clientY };
-        movedSinceDown = false;
         velLat = 0;
         velLon = 0;
         prevPinchDist = null;
@@ -2084,15 +2108,11 @@
         const dy = e.clientY - prevSingle.y;
         prevSingle = { x: e.clientX, y: e.clientY };
 
-        if (downSingle && Math.hypot(e.clientX - downSingle.x, e.clientY - downSingle.y) > 8) {
-          movedSinceDown = true;
-        }
-
         const sens = 0.24 * clamp((camDist - 1.0) / 1.85, 0.04, 1.5);
         const stepLon = -dx * sens;
         const stepLat = dy * sens;
 
-        camLon = wrapLon(camLon + stepLon);
+        camWorldLon = wrapLon(camWorldLon + stepLon);
         camLat = clamp(camLat + stepLat, -89.5, 89.5);
 
         velLon = velLon * 0.45 + stepLon * 0.55;
@@ -2104,29 +2124,11 @@
           camDist = clamp(camDist * (prevPinchDist / d), 1.035, 4.2);
         }
         prevPinchDist = d;
-        movedSinceDown = true;
       }
     });
 
     function onPointerEnd(e) {
-      const wasSingleTap = pointers.size === 1 && !movedSinceDown && e.type === 'pointerup';
       pointers.delete(e.pointerId);
-
-      if (wasSingleTap) {
-        const rect = canvas.getBoundingClientRect();
-        const ndc = new THREE.Vector2(
-          ((e.clientX - rect.left) / rect.width) * 2 - 1,
-          -((e.clientY - rect.top) / rect.height) * 2 + 1
-        );
-        raycaster.setFromCamera(ndc, camera);
-        const hits = raycaster.intersectObjects(pinsGroup.children, true);
-        if (hits.length > 0 && hits[0].object.userData.pinId) {
-          const hitPin = activePins.find((p) => p.id === hits[0].object.userData.pinId);
-          if (hitPin) {
-            flyToLatLon(hitPin.lat, hitPin.lon, Math.min(camDist, 1.9));
-          }
-        }
-      }
 
       if (pointers.size === 1) {
         const remaining = Array.from(pointers.values())[0];
@@ -2371,6 +2373,8 @@
     // ------------------------------------------------------------
     const _projVec = new THREE.Vector3();
     const _camUnit = new THREE.Vector3();
+    const _worldVec = new THREE.Vector3();
+    const _surfaceVec = new THREE.Vector3();
 
     function projectToScreen(vec3, width, height) {
       _projVec.copy(vec3).project(camera);
@@ -2381,47 +2385,51 @@
       };
     }
 
-    function updateProjectedOverlays(nowMs) {
+    function updateProjectedOverlays() {
       const w = window.innerWidth;
       const h = window.innerHeight;
       _camUnit.copy(camera.position).normalize();
+      const horizonCos = 1.0 / camDist;
 
-      // Stecknadel-Skalierung & Labels
-      const pinScale = clamp((camDist - 0.92) * 0.55, 0.14, 1.35);
+      // Präzise Oberflächen-Marker (R = 1.001, Null Parallaxe)
       for (const pin of activePins) {
-        const age = Math.min(1, (nowMs - pin.createdAt) / 260);
-        const dropEase = age < 1 ? 1 + Math.sin(age * Math.PI) * 0.22 : 1;
-        pin.group.scale.setScalar(pinScale * dropEase);
-
-        const frontDot = pin.normal.dot(_camUnit);
-        if (frontDot < 0.08) {
-          pin.labelEl.style.opacity = '0';
+        _worldVec.copy(pin.localNormal).applyQuaternion(earthGroup.quaternion);
+        const frontDot = _worldVec.dot(_camUnit);
+        if (frontDot < horizonCos - 0.012) {
+          pin.markerEl.style.opacity = '0';
+          pin.pointEl.style.pointerEvents = 'none';
           pin.labelEl.style.pointerEvents = 'none';
           continue;
         }
 
-        const headWorld = pin.normal.clone().multiplyScalar(1.001 + 0.068 * pinScale);
-        const pt = projectToScreen(headWorld, w, h);
+        _surfaceVec.copy(_worldVec).multiplyScalar(1.001);
+        const pt = projectToScreen(_surfaceVec, w, h);
         if (!pt) {
-          pin.labelEl.style.opacity = '0';
+          pin.markerEl.style.opacity = '0';
+          pin.pointEl.style.pointerEvents = 'none';
           pin.labelEl.style.pointerEvents = 'none';
           continue;
         }
 
-        pin.labelEl.style.opacity = frontDot < 0.18 ? String((frontDot - 0.08) / 0.1) : '1';
+        const alpha =
+          frontDot < horizonCos + 0.045
+            ? clamp((frontDot - (horizonCos - 0.012)) / 0.057, 0, 1)
+            : 1;
+        pin.markerEl.style.opacity = String(alpha);
+        pin.pointEl.style.pointerEvents = 'auto';
         pin.labelEl.style.pointerEvents = 'auto';
-        pin.labelEl.style.transform = `translate3d(${(pt.x + 10).toFixed(1)}px, ${(pt.y - 12).toFixed(1)}px, 0)`;
+        pin.markerEl.style.transform = `translate3d(${pt.x.toFixed(1)}px, ${pt.y.toFixed(1)}px, 0)`;
       }
 
-      // Breitenkreis-Labels
+      // Breitenkreis-Labels (vordere Welt-Länge unter Kamera)
       for (const item of lineLabels) {
         if (!linesGroup.visible) {
           item.el.style.opacity = '0';
           continue;
         }
-        const pos = latLonToVec3(item.lat, camLon, 1.004);
+        const pos = latLonToVec3(item.lat, camWorldLon, 1.004);
         const dot = pos.clone().normalize().dot(_camUnit);
-        if (dot < 0.16) {
+        if (dot < horizonCos + 0.08) {
           item.el.style.opacity = '0';
           continue;
         }
@@ -2456,8 +2464,9 @@
       }
     }
 
-    // Initiale Sonnenberechnung
-    updateTimeReadoutAndSun(false);
+    // Initiale Sonnenberechnung & Europa/Afrika ins Sichtfeld setzen
+    updateTimeReadoutAndSun('init');
+    camWorldLon = wrapLon(12 + earthGroup.rotation.y * DEG);
 
     let lastFrameTime = performance.now();
 
@@ -2477,31 +2486,34 @@
             simYear += 1;
           }
         }
-        updateTimeReadoutAndSun(true);
+        updateTimeReadoutAndSun('time');
       }
 
       // Fly-To oder Auslauf-Trägheit
       if (flyAnim) {
         const tRaw = clamp((nowMs - flyAnim.startTime) / flyAnim.duration, 0, 1);
         const t = tRaw < 0.5 ? 4 * tRaw * tRaw * tRaw : 1 - Math.pow(-2 * tRaw + 2, 3) / 2;
-        const dLon = shortestLonDelta(flyAnim.startLon, flyAnim.targetLon);
-        camLat = flyAnim.startLat + (flyAnim.targetLat - flyAnim.startLat) * t;
-        camLon = wrapLon(flyAnim.startLon + dLon * t);
+        const dGeoLon = shortestLonDelta(flyAnim.startGeoLon, flyAnim.targetGeoLon);
+        const curGeoLon = wrapLon(flyAnim.startGeoLon + dGeoLon * t);
+        camLat = flyAnim.startLat + (flyAnim.targetGeoLat - flyAnim.startLat) * t;
+        camWorldLon = wrapLon(curGeoLon + earthGroup.rotation.y * DEG);
         camDist = flyAnim.startDist + (flyAnim.targetDist - flyAnim.startDist) * t;
         if (tRaw >= 1) flyAnim = null;
       } else if (pointers.size === 0 && (Math.abs(velLat) > 0.002 || Math.abs(velLon) > 0.002)) {
-        camLon = wrapLon(camLon + velLon);
+        camWorldLon = wrapLon(camWorldLon + velLon);
         camLat = clamp(camLat + velLat, -89.5, 89.5);
         const decay = Math.pow(0.91, dt * 60);
         velLon *= decay;
         velLat *= decay;
       }
 
-      // Kamera aktualisieren
-      camera.position.copy(latLonToVec3(camLat, camLon, camDist));
+      // Kamera und Erdrota-Matrizen vor Kachel-Abfrage, Render & Punkt-Projektion synchronisieren
+      camera.position.copy(latLonToVec3(camLat, camWorldLon, camDist));
       camera.up.set(0, 1, 0);
       camera.lookAt(0, 0, 0);
       earthUniforms.camPos.value.copy(camera.position);
+      earthGroup.updateMatrixWorld(true);
+      camera.updateMatrixWorld(true);
 
       // Satellitenkacheln aktualisieren & weich einblenden
       updateSatelliteTiles(nowMs, camDist);
@@ -2513,7 +2525,7 @@
       }
 
       renderer.render(scene, camera);
-      updateProjectedOverlays(nowMs);
+      updateProjectedOverlays();
     }
 
     requestAnimationFrame(animate);

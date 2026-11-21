@@ -18,7 +18,7 @@ window.GEO_TOOLS = [
     status: "ready",
     statusLabel: "Bereit",
     ctaLabel: "Erdkugel starten",
-    href: "./erdkugel/",
+    href: "./erdkugel/erdkugel-tag-nacht.html",
     featured: true,
     visual: "day-night"
   }

@@ -8,7 +8,7 @@ Startseite und Sammlung interaktiver Geografie-Lerntools für die Sekundarschule
 
 ## Enthaltene Tools
 
-- **Erdkugel: Tag und Nacht** (`./erdkugel/`): 3D-Globus mit Tag- und Nachtgrenze, Jahreszeiten, Erdachse und Ortssuche.
+- **Erdkugel: Tag und Nacht** (`./erdkugel/erdkugel-tag-nacht.html`): 3D-Globus mit Tag- und Nachtgrenze, Jahreszeiten, Erdachse und Ortssuche.
 
 ## Neues Tool hinzufügen
 
