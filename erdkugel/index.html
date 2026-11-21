@@ -1,0 +1,2522 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Erdkugel</title>
+  <style>
+    :root {
+      --bg-deep: #03060d;
+      --bg-space: #081326;
+      --glass: rgba(11, 18, 32, 0.74);
+      --glass-strong: rgba(11, 18, 32, 0.9);
+      --glass-hover: rgba(24, 38, 66, 0.85);
+      --border: rgba(210, 228, 255, 0.15);
+      --border-strong: rgba(210, 228, 255, 0.28);
+      --text: #f1f6ff;
+      --text-muted: rgba(220, 232, 255, 0.66);
+      --gold: #f4b942;
+      --gold-soft: rgba(244, 185, 66, 0.2);
+      --pin-red: #ee533b;
+      --arctic: #67d5fa;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-left: env(safe-area-inset-left, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+      background: radial-gradient(circle at 50% 45%, var(--bg-space) 0%, var(--bg-deep) 78%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #stage {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      overflow: hidden;
+    }
+
+    #globe-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    #labels-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 4;
+    }
+
+    .pin-label {
+      position: absolute;
+      left: 0;
+      top: 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(8, 14, 26, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+      pointer-events: auto;
+      cursor: pointer;
+      transform: translate3d(-9999px, -9999px, 0);
+      will-change: transform, opacity;
+      transition: opacity 0.15s ease;
+    }
+
+    .line-label {
+      position: absolute;
+      left: 0;
+      top: 0;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: rgba(6, 11, 22, 0.62);
+      font-size: 11px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      pointer-events: none;
+      transform: translate3d(-9999px, -9999px, 0);
+      will-change: transform, opacity;
+    }
+
+    .line-label.arctic {
+      color: var(--arctic);
+      border: 1px solid rgba(103, 213, 250, 0.35);
+    }
+
+    .line-label.tropic {
+      color: var(--gold);
+      border: 1px solid rgba(244, 185, 66, 0.35);
+    }
+
+    .line-label.equator {
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .pole-badge {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(11, 18, 32, 0.84);
+      border: 1px solid rgba(210, 228, 255, 0.42);
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 700;
+      pointer-events: none;
+      transform: translate3d(-9999px, -9999px, 0);
+      will-change: transform, opacity;
+    }
+
+    /* HUD */
+    .hud-top {
+      position: fixed;
+      top: calc(12px + var(--safe-top));
+      left: calc(14px + var(--safe-left));
+      right: calc(14px + var(--safe-right));
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    .search-column {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: min(340px, calc(100vw - 210px));
+      min-width: 190px;
+      pointer-events: auto;
+    }
+
+    .glass {
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.38);
+    }
+
+    .search-box {
+      display: flex;
+      align-items: center;
+      height: 44px;
+      padding: 0 8px 0 12px;
+      border-radius: 14px;
+      gap: 8px;
+      transition: border-color 0.18s ease, background 0.18s ease;
+    }
+
+    .search-box:focus-within {
+      border-color: var(--gold);
+      background: var(--glass-strong);
+    }
+
+    .search-icon {
+      width: 18px;
+      height: 18px;
+      flex: none;
+      color: var(--text-muted);
+    }
+
+    #search-input {
+      flex: 1;
+      min-width: 0;
+      height: 100%;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 16px;
+      font-family: inherit;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    #search-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .icon-clear {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      border: 0;
+      background: transparent;
+      color: var(--text-muted);
+      display: none;
+      place-items: center;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .icon-clear.visible {
+      display: grid;
+    }
+
+    .icon-clear:active {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .search-results {
+      position: absolute;
+      top: 50px;
+      left: 0;
+      right: 0;
+      max-height: min(320px, 46vh);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 14px;
+      padding: 5px;
+      display: none;
+      z-index: 30;
+    }
+
+    .search-results.open {
+      display: block;
+    }
+
+    .search-item {
+      width: 100%;
+      min-height: 44px;
+      padding: 8px 11px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      cursor: pointer;
+    }
+
+    .search-item:hover,
+    .search-item:active {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .search-item-main {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .search-item-name {
+      font-size: 15px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-item-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-item-coord {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+      flex: none;
+    }
+
+    .search-empty {
+      padding: 12px;
+      font-size: 14px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .pins-bar {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
+    }
+
+    .pins-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .pin-chip {
+      height: 36px;
+      min-height: 36px;
+      flex: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 6px 0 10px;
+      border-radius: 999px;
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(18px);
+      backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 13.5px;
+      font-weight: 500;
+    }
+
+    .pin-chip-go {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      padding: 4px 2px;
+      cursor: pointer;
+    }
+
+    .pin-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--pin-red);
+      box-shadow: 0 0 8px rgba(238, 83, 59, 0.7);
+      flex: none;
+    }
+
+    .pin-chip-remove {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 0;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      padding: 0;
+    }
+
+    .pin-chip-remove:active {
+      background: rgba(238, 83, 59, 0.35);
+      color: #fff;
+    }
+
+    .toggles-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+      flex: none;
+    }
+
+    .toggle-btn {
+      min-width: 44px;
+      height: 44px;
+      padding: 0 13px;
+      border-radius: 14px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      cursor: pointer;
+      transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+    }
+
+    .toggle-btn svg {
+      width: 18px;
+      height: 18px;
+      flex: none;
+    }
+
+    .toggle-btn.active {
+      background: rgba(244, 185, 66, 0.18);
+      border-color: rgba(244, 185, 66, 0.65);
+      color: var(--gold);
+    }
+
+    .toggle-btn.lines-active {
+      background: rgba(103, 213, 250, 0.16);
+      border-color: rgba(103, 213, 250, 0.62);
+      color: var(--arctic);
+    }
+
+    /* Bottom Time Dock */
+    .dock-wrap {
+      position: fixed;
+      left: calc(14px + var(--safe-left));
+      right: calc(14px + var(--safe-right));
+      bottom: calc(12px + var(--safe-bottom));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    .dock {
+      width: min(720px, 100%);
+      border-radius: 20px;
+      padding: 10px 14px 12px;
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: transform 0.24s ease;
+    }
+
+    .dock-header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: -4px 0 -4px;
+    }
+
+    .dock-collapse-btn {
+      width: 48px;
+      height: 22px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-muted);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .dock-collapse-btn:active {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .dock.collapsed .dock-row-secondary {
+      display: none;
+    }
+
+    .dock-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+    }
+
+    .play-btn {
+      width: 44px;
+      height: 44px;
+      flex: none;
+      border-radius: 13px;
+      border: 1px solid rgba(244, 185, 66, 0.48);
+      background: rgba(244, 185, 66, 0.16);
+      color: var(--gold);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .play-btn.playing {
+      background: var(--gold);
+      color: #0b1220;
+    }
+
+    .play-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .readout {
+      min-width: 90px;
+      font-size: 15px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: var(--text);
+    }
+
+    .readout-date {
+      min-width: 78px;
+      font-size: 14.5px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      color: var(--text);
+    }
+
+    .slider {
+      -webkit-appearance: none;
+      appearance: none;
+      flex: 1;
+      min-width: 80px;
+      height: 36px;
+      background: transparent;
+      cursor: pointer;
+      margin: 0;
+    }
+
+    .slider::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(210, 228, 255, 0.22);
+    }
+
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--gold);
+      border: 2px solid #0b1220;
+      margin-top: -11px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+    }
+
+    .slider.date-slider::-webkit-slider-thumb {
+      background: #e9f1ff;
+    }
+
+    .slider::-moz-range-track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(210, 228, 255, 0.22);
+    }
+
+    .slider::-moz-range-thumb {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--gold);
+      border: 2px solid #0b1220;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+    }
+
+    .slider.date-slider::-moz-range-thumb {
+      background: #e9f1ff;
+    }
+
+    .mode-btn {
+      height: 40px;
+      min-width: 98px;
+      padding: 0 11px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex: none;
+    }
+
+    .mode-btn.active {
+      border-color: rgba(244, 185, 66, 0.52);
+      background: var(--gold-soft);
+      color: var(--gold);
+    }
+
+    .presets {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: none;
+    }
+
+    .preset-btn {
+      height: 38px;
+      min-width: 44px;
+      padding: 0 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .preset-btn.active {
+      background: var(--gold);
+      border-color: var(--gold);
+      color: #0b1220;
+    }
+
+    .preset-btn.now-btn {
+      border-color: rgba(103, 213, 250, 0.4);
+      color: var(--arctic);
+    }
+
+    .preset-btn:active,
+    .mode-btn:active,
+    .toggle-btn:active {
+      transform: scale(0.97);
+    }
+
+    /* Minimal loading spinner until day map arrives */
+    #loader {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      pointer-events: none;
+      z-index: 5;
+      transition: opacity 0.35s ease;
+    }
+
+    #loader.hidden {
+      opacity: 0;
+    }
+
+    .spinner {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 3px solid rgba(210, 228, 255, 0.18);
+      border-top-color: var(--gold);
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (max-width: 680px) {
+      .hud-top {
+        flex-wrap: wrap;
+      }
+
+      .search-column {
+        width: 100%;
+        order: 1;
+      }
+
+      .toggles-right {
+        order: 0;
+        margin-left: auto;
+      }
+
+      .dock-row-secondary {
+        flex-wrap: wrap;
+      }
+
+      .presets {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .preset-btn {
+        flex: 1;
+        padding: 0 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="globe-canvas"></canvas>
+  </div>
+
+  <div id="labels-layer"></div>
+
+  <div id="loader" aria-hidden="true">
+    <div class="spinner"></div>
+  </div>
+
+  <header class="hud-top">
+    <div class="search-column">
+      <div class="search-box glass">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7.5" />
+          <line x1="20" y1="20" x2="16.4" y2="16.4" />
+        </svg>
+        <input
+          id="search-input"
+          type="search"
+          placeholder="Ort suchen…"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          enterkeyhint="search"
+        />
+        <button id="search-clear" class="icon-clear" type="button" aria-label="Suche leeren">×</button>
+      </div>
+      <div id="search-results" class="search-results glass" role="listbox"></div>
+      <div id="pins-bar" class="pins-bar"></div>
+    </div>
+
+    <div class="toggles-right">
+      <button id="btn-lines" class="toggle-btn glass" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <ellipse cx="12" cy="12" rx="9" ry="3.2" />
+          <line x1="5" y1="7" x2="19" y2="7" stroke-dasharray="2.5 2" />
+          <line x1="5" y1="17" x2="19" y2="17" stroke-dasharray="2.5 2" />
+        </svg>
+        <span>Linien</span>
+      </button>
+      <button id="btn-axis" class="toggle-btn glass" type="button" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <line x1="12" y1="2" x2="12" y2="22" />
+          <circle cx="12" cy="12" r="6.5" />
+          <path d="M18.5 5.5L22 2M22 2H19M22 2V5" stroke="#f4b942" />
+        </svg>
+        <span>Achse</span>
+      </button>
+    </div>
+  </header>
+
+  <footer class="dock-wrap">
+    <div id="dock" class="dock glass">
+      <div class="dock-header">
+        <button id="dock-collapse" class="dock-collapse-btn" type="button" aria-label="Zeitleiste ein-/ausklappen">
+          <svg id="dock-chevron" width="20" height="14" viewBox="0 0 20 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 4 10 10 16 4" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="dock-row">
+        <button id="btn-play" class="play-btn" type="button" aria-label="Zeitraffer starten">
+          <svg id="icon-play" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="7,5 19,12 7,19" />
+          </svg>
+          <svg id="icon-pause" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+            <rect x="6" y="5" width="4.5" height="14" rx="1.2" />
+            <rect x="13.5" y="5" width="4.5" height="14" rx="1.2" />
+          </svg>
+        </button>
+        <div id="time-readout" class="readout">12:00 MEZ</div>
+        <input id="time-slider" class="slider" type="range" min="0" max="1440" step="5" value="720" aria-label="Uhrzeit" />
+        <button id="btn-mode" class="mode-btn active" type="button">Erde dreht</button>
+      </div>
+
+      <div class="dock-row dock-row-secondary">
+        <div id="date-readout" class="readout-date">21. Jun.</div>
+        <input id="date-slider" class="slider date-slider" type="range" min="1" max="365" step="1" value="172" aria-label="Datum" />
+        <div class="presets">
+          <button class="preset-btn" type="button" data-month="3" data-day="21">21. Mär</button>
+          <button class="preset-btn" type="button" data-month="6" data-day="21">21. Jun</button>
+          <button class="preset-btn" type="button" data-month="9" data-day="23">23. Sep</button>
+          <button class="preset-btn" type="button" data-month="12" data-day="21">21. Dez</button>
+          <button id="btn-now" class="preset-btn now-btn" type="button">Jetzt</button>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js';
+
+    // ------------------------------------------------------------
+    // 1. Koordinaten & Astronomie (NOAA / Jean Meeus)
+    // ------------------------------------------------------------
+    const RAD = Math.PI / 180;
+    const DEG = 180 / Math.PI;
+
+    function clamp(v, lo, hi) {
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    function wrapLon(lonDeg) {
+      return ((((lonDeg + 180) % 360) + 360) % 360) - 180;
+    }
+
+    function shortestLonDelta(fromDeg, toDeg) {
+      return ((((toDeg - fromDeg + 180) % 360) + 360) % 360) - 180;
+    }
+
+    // Exakt deckungsgleich mit Three.js SphereGeometry (u=0.5 -> 0°E, v=1 -> 90°N)
+    function latLonToVec3(latDeg, lonDeg, radius = 1) {
+      const lat = latDeg * RAD;
+      const lon = lonDeg * RAD;
+      const cosLat = Math.cos(lat);
+      return new THREE.Vector3(
+        radius * cosLat * Math.cos(lon),
+        radius * Math.sin(lat),
+        -radius * cosLat * Math.sin(lon)
+      );
+    }
+
+    function vec3ToLatLon(vec) {
+      const n = vec.clone().normalize();
+      const lat = Math.asin(clamp(n.y, -1, 1)) * DEG;
+      const lon = Math.atan2(-n.z, n.x) * DEG;
+      return { lat, lon };
+    }
+
+    function computeSunPosition(utcDate) {
+      const jd = utcDate.getTime() / 86400000 + 2440587.5;
+      const T = (jd - 2451545.0) / 36525.0;
+
+      let L0 = (280.46646 + T * (36000.76983 + 0.0003032 * T)) % 360;
+      if (L0 < 0) L0 += 360;
+
+      const M = 357.52911 + T * (35999.05029 - 0.0001537 * T);
+      const Mrad = M * RAD;
+      const e = 0.016708634 - T * (0.000042037 + 0.0000001267 * T);
+
+      const C =
+        Math.sin(Mrad) * (1.914602 - T * (0.004817 + 0.000014 * T)) +
+        Math.sin(2 * Mrad) * (0.019993 - 0.000101 * T) +
+        Math.sin(3 * Mrad) * 0.000289;
+
+      const trueLong = L0 + C;
+      const omega = 125.04 - 1934.136 * T;
+      const lambda = trueLong - 0.00569 - 0.00478 * Math.sin(omega * RAD);
+
+      const seconds = 21.448 - T * (46.8150 + T * (0.00059 - T * 0.001813));
+      const obliq0 = 23 + (26 + seconds / 60) / 60;
+      const obliqCorr = obliq0 + 0.00256 * Math.cos(omega * RAD);
+
+      const sinDecl = Math.sin(obliqCorr * RAD) * Math.sin(lambda * RAD);
+      const subsolarLat = Math.asin(clamp(sinDecl, -1, 1)) * DEG;
+
+      const y = Math.tan((obliqCorr / 2) * RAD) ** 2;
+      const L0rad = L0 * RAD;
+      const eqTime =
+        4 *
+        DEG *
+        (y * Math.sin(2 * L0rad) -
+          2 * e * Math.sin(Mrad) +
+          4 * e * y * Math.sin(Mrad) * Math.cos(2 * L0rad) -
+          0.5 * y * y * Math.sin(4 * L0rad) -
+          1.25 * e * e * Math.sin(2 * Mrad));
+
+      const utcMinutes =
+        utcDate.getUTCHours() * 60 +
+        utcDate.getUTCMinutes() +
+        utcDate.getUTCSeconds() / 60 +
+        utcDate.getUTCMilliseconds() / 60000;
+
+      const subsolarLon = wrapLon(180 - (utcMinutes + eqTime) / 4);
+      const sunDir = latLonToVec3(subsolarLat, subsolarLon, 1).normalize();
+
+      return { subsolarLat, subsolarLon, eqTime, sunDir };
+    }
+
+    function daysInYear(year) {
+      return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0 ? 366 : 365;
+    }
+
+    function dayOfYearFromMonthDay(year, month1Based, day) {
+      return Math.round((Date.UTC(year, month1Based - 1, day) - Date.UTC(year, 0, 1)) / 86400000) + 1;
+    }
+
+    function stateToUtcDate(year, dayOfYear, mezMinutes) {
+      return new Date(Date.UTC(year, 0, 1) + (dayOfYear - 1) * 86400000 + (mezMinutes - 60) * 60000);
+    }
+
+    // ------------------------------------------------------------
+    // 2. Eingebetteter Orts-Sofortindex (~85 Orte)
+    // ------------------------------------------------------------
+    const LOCAL_PLACES = [
+      { name: 'Nordpol', region: 'Arktis', lat: 90, lon: 0, aliases: ['north pole'] },
+      { name: 'Südpol', region: 'Antarktis', lat: -90, lon: 0, aliases: ['suedpol', 'south pole'] },
+      { name: 'Nordkap', region: 'Norwegen', lat: 71.1695, lon: 25.7832, aliases: ['nordkapp'] },
+      { name: 'Longyearbyen', region: 'Spitzbergen · Norwegen', lat: 78.2232, lon: 15.6267, aliases: ['spitzbergen', 'svalbard'] },
+      { name: 'Ny-Ålesund', region: 'Spitzbergen · Norwegen', lat: 78.9235, lon: 11.9099, aliases: ['ny alesund'] },
+      { name: 'Tromsø', region: 'Norwegen', lat: 69.6492, lon: 18.9553, aliases: ['tromso', 'tromsoe'] },
+      { name: 'Hammerfest', region: 'Norwegen', lat: 70.6634, lon: 23.6821 },
+      { name: 'Bodø', region: 'Norwegen', lat: 67.2804, lon: 14.4049, aliases: ['bodo'] },
+      { name: 'Kiruna', region: 'Schweden', lat: 67.8558, lon: 20.2253 },
+      { name: 'Rovaniemi', region: 'Finnland', lat: 66.5039, lon: 25.7294 },
+      { name: 'Murmansk', region: 'Russland', lat: 68.9585, lon: 33.0827 },
+      { name: 'Reykjavík', region: 'Island', lat: 64.1466, lon: -21.9426, aliases: ['reykjavik'] },
+      { name: 'Nuuk', region: 'Grönland', lat: 64.1814, lon: -51.6941 },
+      { name: 'Alert', region: 'Kanada', lat: 82.5018, lon: -62.3481 },
+      { name: 'Utqiaġvik', region: 'Alaska · USA', lat: 71.2906, lon: -156.7886, aliases: ['barrow', 'utqiagvik'] },
+      { name: 'Fairbanks', region: 'Alaska · USA', lat: 64.8378, lon: -147.7164 },
+      { name: 'Anchorage', region: 'Alaska · USA', lat: 61.2181, lon: -149.9003 },
+      { name: 'McMurdo-Station', region: 'Ross-Insel · Antarktis', lat: -77.8419, lon: 166.6863, aliases: ['mcmurdo'] },
+      { name: 'Amundsen-Scott-Station', region: 'Südpol · Antarktis', lat: -89.99, lon: 0, aliases: ['amundsen scott'] },
+      { name: 'Neumayer-Station III', region: 'Antarktis', lat: -70.6744, lon: -8.2742, aliases: ['neumayer'] },
+      { name: 'Ushuaia', region: 'Argentinien', lat: -54.8019, lon: -68.303 },
+      { name: 'Punta Arenas', region: 'Chile', lat: -53.1638, lon: -70.9171 },
+      { name: 'Zürich', region: 'Schweiz', lat: 47.3769, lon: 8.5417, aliases: ['zurich', 'zuerich'] },
+      { name: 'Bern', region: 'Schweiz', lat: 46.948, lon: 7.4474 },
+      { name: 'Basel', region: 'Schweiz', lat: 47.5596, lon: 7.5886 },
+      { name: 'Genf', region: 'Schweiz', lat: 46.2044, lon: 6.1432, aliases: ['geneve', 'geneva'] },
+      { name: 'Lausanne', region: 'Schweiz', lat: 46.5197, lon: 6.6323 },
+      { name: 'Luzern', region: 'Schweiz', lat: 47.0502, lon: 8.3093 },
+      { name: 'St. Gallen', region: 'Schweiz', lat: 47.4245, lon: 9.3767 },
+      { name: 'Winterthur', region: 'Schweiz', lat: 47.4988, lon: 8.7237 },
+      { name: 'Lugano', region: 'Schweiz', lat: 46.0037, lon: 8.9511 },
+      { name: 'Chur', region: 'Schweiz', lat: 46.8508, lon: 9.532 },
+      { name: 'Sion', region: 'Schweiz', lat: 46.2331, lon: 7.3606, aliases: ['sitten'] },
+      { name: 'Zermatt', region: 'Schweiz', lat: 46.0207, lon: 7.7491 },
+      { name: 'Berlin', region: 'Deutschland', lat: 52.52, lon: 13.405 },
+      { name: 'München', region: 'Deutschland', lat: 48.1351, lon: 11.582, aliases: ['munchen', 'muenchen'] },
+      { name: 'Hamburg', region: 'Deutschland', lat: 53.5511, lon: 9.9937 },
+      { name: 'Frankfurt am Main', region: 'Deutschland', lat: 50.1109, lon: 8.6821 },
+      { name: 'Köln', region: 'Deutschland', lat: 50.9375, lon: 6.9603, aliases: ['koln', 'koeln'] },
+      { name: 'Wien', region: 'Österreich', lat: 48.2082, lon: 16.3738, aliases: ['vienna'] },
+      { name: 'Innsbruck', region: 'Österreich', lat: 47.2692, lon: 11.4041 },
+      { name: 'Salzburg', region: 'Österreich', lat: 47.8095, lon: 13.055 },
+      { name: 'Graz', region: 'Österreich', lat: 47.0707, lon: 15.4395 },
+      { name: 'London', region: 'Vereinigtes Königreich', lat: 51.5072, lon: -0.1276, aliases: ['greenwich'] },
+      { name: 'Paris', region: 'Frankreich', lat: 48.8566, lon: 2.3522 },
+      { name: 'Madrid', region: 'Spanien', lat: 40.4168, lon: -3.7038 },
+      { name: 'Lissabon', region: 'Portugal', lat: 38.7223, lon: -9.1393, aliases: ['lisboa'] },
+      { name: 'Rom', region: 'Italien', lat: 41.9028, lon: 12.4964, aliases: ['roma'] },
+      { name: 'Athen', region: 'Griechenland', lat: 37.9838, lon: 23.7275 },
+      { name: 'Istanbul', region: 'Türkei', lat: 41.0082, lon: 28.9784 },
+      { name: 'Oslo', region: 'Norwegen', lat: 59.9139, lon: 10.7522 },
+      { name: 'Stockholm', region: 'Schweden', lat: 59.3293, lon: 18.0686 },
+      { name: 'Helsinki', region: 'Finnland', lat: 60.1699, lon: 24.9384 },
+      { name: 'Kopenhagen', region: 'Dänemark', lat: 55.6761, lon: 12.5683 },
+      { name: 'Moskau', region: 'Russland', lat: 55.7558, lon: 37.6173 },
+      { name: 'Kairo', region: 'Ägypten', lat: 30.0444, lon: 31.2357, aliases: ['cairo'] },
+      { name: 'Casablanca', region: 'Marokko', lat: 33.5731, lon: -7.5898 },
+      { name: 'Nairobi', region: 'Kenia', lat: -1.2921, lon: 36.8219 },
+      { name: 'Kapstadt', region: 'Südafrika', lat: -33.9249, lon: 18.4241, aliases: ['cape town'] },
+      { name: 'Dubai', region: 'Vereinigte Arabische Emirate', lat: 25.2048, lon: 55.2708 },
+      { name: 'Mumbai', region: 'Indien', lat: 19.076, lon: 72.8777 },
+      { name: 'Neu-Delhi', region: 'Indien', lat: 28.6139, lon: 77.209 },
+      { name: 'Bangkok', region: 'Thailand', lat: 13.7563, lon: 100.5018 },
+      { name: 'Singapur', region: 'Singapur', lat: 1.3521, lon: 103.8198, aliases: ['singapore'] },
+      { name: 'Jakarta', region: 'Indonesien', lat: -6.2088, lon: 106.8456 },
+      { name: 'Peking', region: 'China', lat: 39.9042, lon: 116.4074, aliases: ['beijing'] },
+      { name: 'Shanghai', region: 'China', lat: 31.2304, lon: 121.4737 },
+      { name: 'Tokio', region: 'Japan', lat: 35.6762, lon: 139.6503, aliases: ['tokyo'] },
+      { name: 'Seoul', region: 'Südkorea', lat: 37.5665, lon: 126.978 },
+      { name: 'Sydney', region: 'Australien', lat: -33.8688, lon: 151.2093 },
+      { name: 'Melbourne', region: 'Australien', lat: -37.8136, lon: 144.9631 },
+      { name: 'Auckland', region: 'Neuseeland', lat: -36.8485, lon: 174.7633 },
+      { name: 'New York', region: 'USA', lat: 40.7128, lon: -74.006 },
+      { name: 'Washington, D.C.', region: 'USA', lat: 38.9072, lon: -77.0369 },
+      { name: 'Chicago', region: 'USA', lat: 41.8781, lon: -87.6298 },
+      { name: 'Miami', region: 'USA', lat: 25.7617, lon: -80.1918 },
+      { name: 'Los Angeles', region: 'USA', lat: 34.0522, lon: -118.2437 },
+      { name: 'San Francisco', region: 'USA', lat: 37.7749, lon: -122.4194 },
+      { name: 'Toronto', region: 'Kanada', lat: 43.6532, lon: -79.3832 },
+      { name: 'Mexiko-Stadt', region: 'Mexiko', lat: 19.4326, lon: -99.1332, aliases: ['mexico city'] },
+      { name: 'Quito', region: 'Ecuador', lat: -0.1807, lon: -78.4678 },
+      { name: 'Bogotá', region: 'Kolumbien', lat: 4.711, lon: -74.0721 },
+      { name: 'Lima', region: 'Peru', lat: -12.0464, lon: -77.0428 },
+      { name: 'São Paulo', region: 'Brasilien', lat: -23.5505, lon: -46.6333, aliases: ['sao paulo'] },
+      { name: 'Rio de Janeiro', region: 'Brasilien', lat: -22.9068, lon: -43.1729 },
+      { name: 'Buenos Aires', region: 'Argentinien', lat: -34.6037, lon: -58.3816 },
+      { name: 'Santiago de Chile', region: 'Chile', lat: -33.4489, lon: -70.6693 },
+      { name: 'Honolulu', region: 'Hawaii · USA', lat: 21.3069, lon: -157.8583 },
+    ];
+
+    function normalizeSearch(str) {
+      return str
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ø/g, 'o')
+        .replace(/å/g, 'a')
+        .replace(/æ/g, 'ae')
+        .replace(/ß/g, 'ss')
+        .trim();
+    }
+
+    // ------------------------------------------------------------
+    // 3. WebGL-Szene, Erdkugel & GLSL-Tag/Nacht-Shader
+    // ------------------------------------------------------------
+    const stage = document.getElementById('stage');
+    const canvas = document.getElementById('globe-canvas');
+    const labelsLayer = document.getElementById('labels-layer');
+    const loaderEl = document.getElementById('loader');
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: false,
+      powerPreference: 'high-performance',
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+    });
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.015, 220);
+
+    // Sternenhimmel
+    {
+      const starCount = 1800;
+      const starPos = new Float32Array(starCount * 3);
+      const starCol = new Float32Array(starCount * 3);
+      for (let i = 0; i < starCount; i++) {
+        const u = Math.random();
+        const v = Math.random();
+        const theta = 2 * Math.PI * u;
+        const phi = Math.acos(2 * v - 1);
+        const r = 60 + Math.random() * 25;
+        starPos[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+        starPos[i * 3 + 1] = r * Math.cos(phi);
+        starPos[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+
+        const b = 0.35 + Math.random() * 0.65;
+        const tint = Math.random();
+        starCol[i * 3] = b * (tint > 0.75 ? 1.0 : 0.85);
+        starCol[i * 3 + 1] = b * 0.9;
+        starCol[i * 3 + 2] = b * (tint < 0.25 ? 1.0 : 0.95);
+      }
+      const starGeo = new THREE.BufferGeometry();
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+      starGeo.setAttribute('color', new THREE.BufferAttribute(starCol, 3));
+      const starMat = new THREE.PointsMaterial({
+        size: 0.16,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+      });
+      scene.add(new THREE.Points(starGeo, starMat));
+    }
+
+    // 1x1 Platzhalter-Texturen, bis CDN-Texturen geladen sind
+    function makeSolidTexture(r, g, b) {
+      const tex = new THREE.DataTexture(new Uint8Array([r, g, b, 255]), 1, 1, THREE.RGBAFormat);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    const dayTexPlaceholder = makeSolidTexture(16, 44, 88);
+    const nightTexPlaceholder = makeSolidTexture(4, 7, 15);
+    const specTexPlaceholder = makeSolidTexture(80, 80, 80);
+
+    const earthUniforms = {
+      dayTex: { value: dayTexPlaceholder },
+      nightTex: { value: nightTexPlaceholder },
+      specTex: { value: specTexPlaceholder },
+      sunDir: { value: new THREE.Vector3(1, 0, 0) },
+      camPos: { value: new THREE.Vector3(0, 0, 3) },
+    };
+
+    const earthVertexShader = `
+      varying vec2 vUv;
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldPos;
+      void main() {
+        vUv = uv;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `;
+
+    const earthFragmentShader = `
+      uniform sampler2D dayTex;
+      uniform sampler2D nightTex;
+      uniform sampler2D specTex;
+      uniform vec3 sunDir;
+      uniform vec3 camPos;
+
+      varying vec2 vUv;
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldPos;
+
+      void main() {
+        vec3 N = normalize(vWorldNormal);
+        vec3 S = normalize(sunDir);
+        vec3 V = normalize(camPos - vWorldPos);
+
+        // sin(Sonnenhöhe): -0.0145 entspricht -0.833° (Refraktion + Sonnenscheibe)
+        float sinAlt = dot(N, S);
+        float dayBlend = smoothstep(-0.025, 0.12, sinAlt);
+
+        vec3 dayCol = texture2D(dayTex, vUv).rgb;
+        vec3 nightLights = texture2D(nightTex, vUv).rgb;
+        float oceanMask = texture2D(specTex, vUv).r;
+
+        // Realistische Tagesbeleuchtung
+        float diffuse = clamp(sinAlt * 0.92 + 0.14, 0.0, 1.0);
+        float litGain = mix(0.24, 1.12, pow(diffuse, 0.72));
+        vec3 litDay = dayCol * litGain;
+
+        // Dezenter Ozean-Glanzreflex auf der Tagseite
+        vec3 H = normalize(S + V);
+        float spec = pow(max(dot(N, H), 0.0), 42.0) * oceanMask * smoothstep(0.0, 0.25, sinAlt);
+        litDay += vec3(0.45, 0.56, 0.68) * spec * 0.32;
+
+        // Dämmerungszone (Gold-Orange direkt am Horizont bis tiefes Dämmerungsblau)
+        float twilightCore = exp(-pow((sinAlt + 0.014) / 0.055, 2.0));
+        float civilBand = smoothstep(-0.22, -0.01, sinAlt) * (1.0 - smoothstep(-0.01, 0.11, sinAlt));
+
+        // Nachtseite: abgedunkelte Kontinente + NASA-Stadtlichter strikt nur im Dunkeln
+        vec3 nightBase = mix(dayCol * vec3(0.055, 0.078, 0.13), nightLights * vec3(0.42, 0.48, 0.60), 0.45);
+        float cityMask = 1.0 - smoothstep(-0.15, -0.012, sinAlt);
+        float cityGlow = smoothstep(0.08, 0.42, nightLights.r);
+        vec3 nightCol = nightBase + vec3(1.0, 0.78, 0.38) * cityGlow * 1.15 * cityMask;
+
+        vec3 color = mix(nightCol, litDay, dayBlend);
+        color += vec3(0.07, 0.14, 0.30) * civilBand * 0.55;
+        color += vec3(0.95, 0.42, 0.14) * twilightCore * 0.20;
+
+        // Subtiler Fresnel-Atmosphärenrand auf der beleuchteten Seite
+        float rim = pow(1.0 - max(dot(N, V), 0.0), 3.6);
+        float rimLit = smoothstep(-0.18, 0.25, sinAlt);
+        color += vec3(0.28, 0.58, 1.0) * rim * (0.08 + 0.52 * rimLit);
+
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `;
+
+    const earthGeo = new THREE.SphereGeometry(1, 96, 64);
+    const earthMat = new THREE.ShaderMaterial({
+      uniforms: earthUniforms,
+      vertexShader: earthVertexShader,
+      fragmentShader: earthFragmentShader,
+    });
+    const earthMesh = new THREE.Mesh(earthGeo, earthMat);
+    scene.add(earthMesh);
+
+    // Äusserer Atmosphären-Halo
+    const atmosGeo = new THREE.SphereGeometry(1.032, 64, 48);
+    const atmosMat = new THREE.ShaderMaterial({
+      uniforms: {
+        sunDir: earthUniforms.sunDir,
+        camPos: earthUniforms.camPos,
+      },
+      vertexShader: `
+        varying vec3 vWorldNormal;
+        varying vec3 vWorldPos;
+        void main() {
+          vWorldNormal = normalize(mat3(modelMatrix) * normal);
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPos = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 sunDir;
+        uniform vec3 camPos;
+        varying vec3 vWorldNormal;
+        varying vec3 vWorldPos;
+        void main() {
+          vec3 N = normalize(vWorldNormal);
+          vec3 V = normalize(camPos - vWorldPos);
+          float viewRim = pow(clamp(0.68 - dot(-N, V), 0.0, 1.0), 2.5);
+          float sunSide = smoothstep(-0.28, 0.4, dot(N, normalize(sunDir)));
+          float alpha = viewRim * (0.08 + 0.72 * sunSide);
+          gl_FragColor = vec4(0.32, 0.64, 1.0, alpha * 0.65);
+        }
+      `,
+      side: THREE.BackSide,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false,
+    });
+    scene.add(new THREE.Mesh(atmosGeo, atmosMat));
+
+    // Texturen asynchron laden (mit iOS-VRAM-Schutz)
+    const isTouchOrIOS =
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+      navigator.maxTouchPoints > 0;
+    const maxTexSize = renderer.capabilities.maxTextureSize || 4096;
+    const maxAniso = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+
+    function loadImage(url) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.decoding = 'async';
+        img.onload = () => resolve(img);
+        img.onerror = (err) => reject(err);
+        img.src = url;
+      });
+    }
+
+    function createTextureFromImage(img, targetMaxWidth) {
+      let source = img;
+      const limitW = Math.min(maxTexSize, targetMaxWidth);
+      if (img.width > limitW) {
+        const scale = limitW / img.width;
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        source = c;
+      }
+      const tex = new THREE.Texture(source);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      tex.minFilter = THREE.LinearMipmapLinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.anisotropy = maxAniso;
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    loadImage('https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg')
+      .then((img) => {
+        earthUniforms.dayTex.value = createTextureFromImage(img, 4096);
+        dayTexPlaceholder.dispose();
+        loaderEl.classList.add('hidden');
+      })
+      .catch(() => {
+        loaderEl.classList.add('hidden');
+      });
+
+    loadImage('https://unpkg.com/three-globe@2.31.1/example/img/earth-night.jpg')
+      .then((img) => {
+        earthUniforms.nightTex.value = createTextureFromImage(img, isTouchOrIOS ? 2048 : 4096);
+        nightTexPlaceholder.dispose();
+      })
+      .catch(() => {});
+
+    loadImage('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/textures/planets/earth_specular_2048.jpg')
+      .then((img) => {
+        earthUniforms.specTex.value = createTextureFromImage(img, 2048);
+        specTexPlaceholder.dispose();
+      })
+      .catch(() => {});
+
+    // ------------------------------------------------------------
+    // 4. Hybrides Esri-Satellitenkachel-Overlay (Zoom z=3..10, LRU<=36)
+    // ------------------------------------------------------------
+    const tilesGroup = new THREE.Group();
+    scene.add(tilesGroup);
+
+    const MAX_TILE_CACHE = 36;
+    const MAX_CONCURRENT_TILES = 4;
+    const tileCache = new Map(); // key -> { key, z, x, y, mesh, tex, mat, geo, state, lastUsed, opacity }
+    let activeTileLoads = 0;
+    let lastTileCheckTime = 0;
+    const tileLoadQueue = [];
+
+    const tileVertexShader = `
+      varying vec2 vUv;
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldPos;
+      void main() {
+        vUv = uv;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `;
+
+    const tileFragmentShader = `
+      uniform sampler2D tileTex;
+      uniform vec3 sunDir;
+      uniform vec3 camPos;
+      uniform float uOpacity;
+
+      varying vec2 vUv;
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldPos;
+
+      void main() {
+        vec3 N = normalize(vWorldNormal);
+        vec3 S = normalize(sunDir);
+        vec3 V = normalize(camPos - vWorldPos);
+
+        float sinAlt = dot(N, S);
+        float dayBlend = smoothstep(-0.025, 0.12, sinAlt);
+
+        vec3 col = texture2D(tileTex, vUv).rgb;
+        float diffuse = clamp(sinAlt * 0.92 + 0.14, 0.0, 1.0);
+        float litGain = mix(0.24, 1.10, pow(diffuse, 0.72));
+        vec3 litCol = col * litGain;
+
+        float twilightCore = exp(-pow((sinAlt + 0.014) / 0.055, 2.0));
+        float civilBand = smoothstep(-0.22, -0.01, sinAlt) * (1.0 - smoothstep(-0.01, 0.11, sinAlt));
+
+        vec3 nightCol = col * vec3(0.065, 0.088, 0.14);
+        vec3 finalCol = mix(nightCol, litCol, dayBlend);
+        finalCol += vec3(0.07, 0.14, 0.30) * civilBand * 0.55;
+        finalCol += vec3(0.95, 0.42, 0.14) * twilightCore * 0.20;
+
+        float rim = pow(1.0 - max(dot(N, V), 0.0), 3.6);
+        float rimLit = smoothstep(-0.18, 0.25, sinAlt);
+        finalCol += vec3(0.28, 0.58, 1.0) * rim * (0.08 + 0.52 * rimLit);
+
+        // In tiefer Nacht leicht abblenden, damit NASA-Stadtlichter sichtbar bleiben
+        float nightAlpha = mix(0.24, 1.0, smoothstep(-0.15, 0.02, sinAlt));
+        gl_FragColor = vec4(finalCol, uOpacity * nightAlpha);
+      }
+    `;
+
+    function buildMercatorPatchGeometry(z, tx, ty, radius, segments = 8) {
+      const n = Math.pow(2, z);
+      const stride = segments + 1;
+      const positions = new Float32Array(stride * stride * 3);
+      const normals = new Float32Array(stride * stride * 3);
+      const uvs = new Float32Array(stride * stride * 2);
+      const indices = [];
+
+      let pIdx = 0;
+      let uvIdx = 0;
+
+      for (let iy = 0; iy <= segments; iy++) {
+        const t = iy / segments;
+        const mercY = Math.PI * (1 - (2 * (ty + t)) / n);
+        const latDeg = Math.atan(Math.sinh(mercY)) * DEG;
+        for (let ix = 0; ix <= segments; ix++) {
+          const s = ix / segments;
+          const lonDeg = ((tx + s) / n) * 360 - 180;
+          const pos = latLonToVec3(latDeg, lonDeg, radius);
+          const norm = pos.clone().normalize();
+
+          positions[pIdx] = pos.x;
+          positions[pIdx + 1] = pos.y;
+          positions[pIdx + 2] = pos.z;
+
+          normals[pIdx] = norm.x;
+          normals[pIdx + 1] = norm.y;
+          normals[pIdx + 2] = norm.z;
+          pIdx += 3;
+
+          uvs[uvIdx] = s;
+          uvs[uvIdx + 1] = 1 - t;
+          uvIdx += 2;
+        }
+      }
+
+      for (let iy = 0; iy < segments; iy++) {
+        for (let ix = 0; ix < segments; ix++) {
+          const a = iy * stride + ix;
+          const b = (iy + 1) * stride + ix;
+          const c = (iy + 1) * stride + (ix + 1);
+          const d = iy * stride + (ix + 1);
+          indices.push(a, b, c, a, c, d);
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      return geo;
+    }
+
+    function latLonToTile(latDeg, lonDeg, z) {
+      const clampedLat = clamp(latDeg, -85.0511, 85.0511);
+      const n = Math.pow(2, z);
+      const x = Math.floor((((lonDeg + 180) / 360) * n)) % n;
+      const latRad = clampedLat * RAD;
+      const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
+      return {
+        x: (x + n) % n,
+        y: clamp(y, 0, n - 1),
+      };
+    }
+
+    function tileCenterVec3(z, tx, ty) {
+      const n = Math.pow(2, z);
+      const lonDeg = ((tx + 0.5) / n) * 360 - 180;
+      const mercY = Math.PI * (1 - (2 * (ty + 0.5)) / n);
+      const latDeg = Math.atan(Math.sinh(mercY)) * DEG;
+      return { latDeg, lonDeg, vec: latLonToVec3(latDeg, lonDeg, 1) };
+    }
+
+    function disposeTileEntry(entry) {
+      if (entry.mesh) {
+        tilesGroup.remove(entry.mesh);
+      }
+      if (entry.tex) entry.tex.dispose();
+      if (entry.geo) entry.geo.dispose();
+      if (entry.mat) entry.mat.dispose();
+    }
+
+    function evictTileCacheIfNeeded(protectedKeys) {
+      if (tileCache.size <= MAX_TILE_CACHE) return;
+      const entries = Array.from(tileCache.values()).sort((a, b) => a.lastUsed - b.lastUsed);
+      for (const entry of entries) {
+        if (tileCache.size <= MAX_TILE_CACHE) break;
+        if (protectedKeys.has(entry.key)) continue;
+        tileCache.delete(entry.key);
+        entry.state = 'disposed';
+        disposeTileEntry(entry);
+      }
+    }
+
+    function pumpTileQueue() {
+      while (activeTileLoads < MAX_CONCURRENT_TILES && tileLoadQueue.length > 0) {
+        const entry = tileLoadQueue.shift();
+        if (!entry || entry.state !== 'queued') continue;
+        entry.state = 'loading';
+        activeTileLoads++;
+        const url = `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${entry.z}/${entry.y}/${entry.x}`;
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.decoding = 'async';
+        img.onload = () => {
+          activeTileLoads--;
+          if (entry.state === 'disposed' || !tileCache.has(entry.key)) {
+            pumpTileQueue();
+            return;
+          }
+          const tex = new THREE.Texture(img);
+          tex.wrapS = THREE.ClampToEdgeWrapping;
+          tex.wrapT = THREE.ClampToEdgeWrapping;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          tex.anisotropy = maxAniso;
+          tex.needsUpdate = true;
+
+          const geo = buildMercatorPatchGeometry(entry.z, entry.x, entry.y, 1.0005 + entry.z * 0.00003, 8);
+          const mat = new THREE.ShaderMaterial({
+            uniforms: {
+              tileTex: { value: tex },
+              sunDir: earthUniforms.sunDir,
+              camPos: earthUniforms.camPos,
+              uOpacity: { value: 0 },
+            },
+            vertexShader: tileVertexShader,
+            fragmentShader: tileFragmentShader,
+            transparent: true,
+            depthWrite: false,
+          });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.renderOrder = entry.z;
+          tilesGroup.add(mesh);
+
+          entry.tex = tex;
+          entry.geo = geo;
+          entry.mat = mat;
+          entry.mesh = mesh;
+          entry.state = 'ready';
+          entry.opacity = 0;
+          pumpTileQueue();
+        };
+        img.onerror = () => {
+          activeTileLoads--;
+          if (entry.state !== 'disposed') {
+            entry.state = 'error';
+          }
+          pumpTileQueue();
+        };
+        img.src = url;
+      }
+    }
+
+    function computeDesiredZoom(camDist) {
+      const alt = camDist - 1.0;
+      if (alt >= 0.95) return 3;
+      if (alt >= 0.55) return 4;
+      if (alt >= 0.30) return 5;
+      if (alt >= 0.16) return 6;
+      if (alt >= 0.09) return 7;
+      if (alt >= 0.05) return 8;
+      if (alt >= 0.025) return 9;
+      return 10;
+    }
+
+    const _rayVec = new THREE.Vector3();
+    function updateSatelliteTiles(nowMs, camDist) {
+      if (camDist >= 2.35) {
+        tilesGroup.visible = false;
+        return;
+      }
+      tilesGroup.visible = true;
+
+      if (nowMs - lastTileCheckTime < 140) return;
+      lastTileCheckTime = nowMs;
+
+      const z = computeDesiredZoom(camDist);
+      const n = Math.pow(2, z);
+      const camDir = camera.position.clone().normalize();
+      const candidates = new Map();
+
+      // Sichtbare Oberflächenpunkte über 7x7 Bildschirm-Strahlen auf Einheitskugel bestimmen
+      const camOrigin = camera.position;
+      const ocSq = camOrigin.lengthSq();
+      const gridSteps = 7;
+
+      for (let iy = 0; iy < gridSteps; iy++) {
+        const ny = -1.0 + (2.0 * iy) / (gridSteps - 1);
+        for (let ix = 0; ix < gridSteps; ix++) {
+          const nx = -1.0 + (2.0 * ix) / (gridSteps - 1);
+          _rayVec.set(nx, ny, 0.5).unproject(camera).sub(camOrigin).normalize();
+          const b = camOrigin.dot(_rayVec);
+          const c = ocSq - 1.0;
+          const disc = b * b - c;
+          if (disc < 0) continue;
+          const t = -b - Math.sqrt(disc);
+          if (t <= 0) continue;
+          const hit = camOrigin.clone().addScaledVector(_rayVec, t);
+          const { lat, lon } = vec3ToLatLon(hit);
+          if (Math.abs(lat) > 84.5) continue;
+
+          const baseTile = latLonToTile(lat, lon, z);
+          for (let dy = -1; dy <= 1; dy++) {
+            const ty = baseTile.y + dy;
+            if (ty < 0 || ty >= n) continue;
+            for (let dx = -1; dx <= 1; dx++) {
+              const tx = (baseTile.x + dx + n) % n;
+              const center = tileCenterVec3(z, tx, ty);
+              if (Math.abs(center.latDeg) > 84.5) continue;
+              const align = center.vec.dot(camDir);
+              if (align < 1.0 / camDist - 0.35) continue;
+              const key = `${z}/${tx}/${ty}`;
+              if (!candidates.has(key)) {
+                candidates.set(key, { key, z, x: tx, y: ty, align });
+              }
+            }
+          }
+        }
+      }
+
+      // Nach Nähe zum Kamerazentrum sortieren und auf max. 24 sichtbare Kacheln begrenzen
+      const desiredList = Array.from(candidates.values())
+        .sort((a, b) => b.align - a.align)
+        .slice(0, 24);
+      const desiredKeys = new Set(desiredList.map((item) => item.key));
+      const keepVisibleKeys = new Set(desiredKeys);
+
+      // Solange Zielkacheln laden, Elternkachel (z-1) darunter sichtbar halten
+      for (const item of desiredList) {
+        let entry = tileCache.get(item.key);
+        if (!entry) {
+          entry = {
+            key: item.key,
+            z: item.z,
+            x: item.x,
+            y: item.y,
+            state: 'queued',
+            lastUsed: nowMs,
+            opacity: 0,
+            mesh: null,
+            tex: null,
+            geo: null,
+            mat: null,
+          };
+          tileCache.set(item.key, entry);
+          tileLoadQueue.push(entry);
+        } else {
+          entry.lastUsed = nowMs;
+        }
+
+        if (entry.state !== 'ready' && item.z > 3) {
+          const pKey = `${item.z - 1}/${Math.floor(item.x / 2)}/${Math.floor(item.y / 2)}`;
+          const parentEntry = tileCache.get(pKey);
+          if (parentEntry && parentEntry.state === 'ready') {
+            parentEntry.lastUsed = nowMs;
+            keepVisibleKeys.add(pKey);
+          }
+        }
+      }
+
+      for (const entry of tileCache.values()) {
+        if (entry.mesh) {
+          entry.mesh.visible = keepVisibleKeys.has(entry.key);
+        }
+      }
+
+      evictTileCacheIfNeeded(keepVisibleKeys);
+      pumpTileQueue();
+    }
+
+    // ------------------------------------------------------------
+    // 5. 3D-Stecknadeln, Geografie-Linien & Erdachse + Sonnenpfeil
+    // ------------------------------------------------------------
+    const pinsGroup = new THREE.Group();
+    scene.add(pinsGroup);
+
+    // Licht für 3D-Stecknadeln und Achsen-Kegel
+    const ambientLight = new THREE.AmbientLight(0xdce8ff, 0.75);
+    scene.add(ambientLight);
+    const sunDirLight = new THREE.DirectionalLight(0xfff4dd, 1.35);
+    scene.add(sunDirLight);
+
+    const activePins = [];
+    let nextPinId = 1;
+
+    // Gemeinsame Stecknadel-Geometrien & Materialien
+    const pinFootGeo = new THREE.CircleGeometry(0.009, 16);
+    pinFootGeo.rotateX(-Math.PI / 2);
+    const pinFootMat = new THREE.MeshBasicMaterial({
+      color: 0x04070d,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    });
+    const pinShaftGeo = new THREE.CylinderGeometry(0.0022, 0.0009, 0.052, 10);
+    pinShaftGeo.translate(0, 0.026, 0);
+    const pinShaftMat = new THREE.MeshStandardMaterial({
+      color: 0xe6edf8,
+      emissive: 0x3b4454,
+      emissiveIntensity: 0.45,
+      metalness: 0.75,
+      roughness: 0.25,
+    });
+    const pinHeadGeo = new THREE.SphereGeometry(0.0135, 18, 14);
+    pinHeadGeo.translate(0, 0.058, 0);
+    const pinHeadMat = new THREE.MeshStandardMaterial({
+      color: 0xee533b,
+      emissive: 0x6b180b,
+      emissiveIntensity: 0.58,
+      roughness: 0.28,
+      metalness: 0.12,
+    });
+    const pinPickGeo = new THREE.SphereGeometry(0.036, 10, 8);
+    pinPickGeo.translate(0, 0.04, 0);
+    const pinPickMat = new THREE.MeshBasicMaterial({ visible: false });
+
+    const pinsBar = document.getElementById('pins-bar');
+    const upAxis = new THREE.Vector3(0, 1, 0);
+
+    function renderPinsBar() {
+      pinsBar.innerHTML = '';
+      for (const pin of activePins) {
+        const chip = document.createElement('div');
+        chip.className = 'pin-chip';
+
+        const goBtn = document.createElement('button');
+        goBtn.type = 'button';
+        goBtn.className = 'pin-chip-go';
+        const dot = document.createElement('span');
+        dot.className = 'pin-dot';
+        const txt = document.createElement('span');
+        txt.textContent = pin.name;
+        goBtn.append(dot, txt);
+        goBtn.addEventListener('click', () => {
+          flyToLatLon(pin.lat, pin.lon, Math.min(camDist, 1.95));
+        });
+
+        const rmBtn = document.createElement('button');
+        rmBtn.type = 'button';
+        rmBtn.className = 'pin-chip-remove';
+        rmBtn.setAttribute('aria-label', `${pin.name} entfernen`);
+        rmBtn.textContent = '×';
+        rmBtn.addEventListener('click', () => removePin(pin.id));
+
+        chip.append(goBtn, rmBtn);
+        pinsBar.appendChild(chip);
+      }
+    }
+
+    function addOrFocusPin(place) {
+      const existing = activePins.find(
+        (p) => Math.abs(p.lat - place.lat) < 0.05 && Math.abs(p.lon - place.lon) < 0.05
+      );
+      if (existing) {
+        flyToLatLon(existing.lat, existing.lon, Math.min(camDist, 1.9));
+        return existing;
+      }
+
+      const id = nextPinId++;
+      const normal = latLonToVec3(place.lat, place.lon, 1).normalize();
+      const group = new THREE.Group();
+      group.position.copy(normal).multiplyScalar(1.001);
+      group.quaternion.setFromUnitVectors(upAxis, normal);
+
+      const foot = new THREE.Mesh(pinFootGeo, pinFootMat);
+      foot.position.y = 0.0004;
+      const shaft = new THREE.Mesh(pinShaftGeo, pinShaftMat);
+      const head = new THREE.Mesh(pinHeadGeo, pinHeadMat);
+      const pick = new THREE.Mesh(pinPickGeo, pinPickMat);
+      pick.userData.pinId = id;
+      head.userData.pinId = id;
+
+      group.add(foot, shaft, head, pick);
+      pinsGroup.add(group);
+
+      const labelEl = document.createElement('button');
+      labelEl.type = 'button';
+      labelEl.className = 'pin-label';
+      labelEl.textContent = place.name;
+      labelEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        flyToLatLon(place.lat, place.lon, Math.min(camDist, 1.9));
+      });
+      labelsLayer.appendChild(labelEl);
+
+      const pin = {
+        id,
+        name: place.name,
+        lat: place.lat,
+        lon: place.lon,
+        normal,
+        group,
+        labelEl,
+        createdAt: performance.now(),
+      };
+      activePins.push(pin);
+      renderPinsBar();
+      flyToLatLon(place.lat, place.lon, camDist > 2.2 ? 1.95 : camDist);
+      return pin;
+    }
+
+    function removePin(pinId) {
+      const idx = activePins.findIndex((p) => p.id === pinId);
+      if (idx === -1) return;
+      const [pin] = activePins.splice(idx, 1);
+      pinsGroup.remove(pin.group);
+      pin.labelEl.remove();
+      renderPinsBar();
+    }
+
+    // Geografie-Linien (Polarkreise, Wendekreise, Äquator)
+    const linesGroup = new THREE.Group();
+    linesGroup.visible = false;
+    scene.add(linesGroup);
+
+    const LINE_DEFS = [
+      { lat: 66.564, text: '66,5° N', cls: 'arctic', color: 0x67d5fa, dashed: true, dash: 0.024, gap: 0.015 },
+      { lat: 23.436, text: '23,4° N', cls: 'tropic', color: 0xf4b942, dashed: true, dash: 0.030, gap: 0.020 },
+      { lat: 0, text: '0°', cls: 'equator', color: 0xffffff, dashed: false },
+      { lat: -23.436, text: '23,4° S', cls: 'tropic', color: 0xf4b942, dashed: true, dash: 0.030, gap: 0.020 },
+      { lat: -66.564, text: '66,5° S', cls: 'arctic', color: 0x67d5fa, dashed: true, dash: 0.024, gap: 0.015 },
+    ];
+
+    const lineLabels = [];
+    for (const def of LINE_DEFS) {
+      const pts = [];
+      const steps = 160;
+      for (let i = 0; i <= steps; i++) {
+        const lon = -180 + (360 * i) / steps;
+        pts.push(latLonToVec3(def.lat, lon, 1.0032));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      let mat;
+      if (def.dashed) {
+        mat = new THREE.LineDashedMaterial({
+          color: def.color,
+          dashSize: def.dash,
+          gapSize: def.gap,
+          transparent: true,
+          opacity: 0.85,
+        });
+      } else {
+        mat = new THREE.LineBasicMaterial({
+          color: def.color,
+          transparent: true,
+          opacity: 0.72,
+        });
+      }
+      const line = new THREE.Line(geo, mat);
+      if (def.dashed) line.computeLineDistances();
+      linesGroup.add(line);
+
+      const el = document.createElement('div');
+      el.className = `line-label ${def.cls}`;
+      el.textContent = def.text;
+      el.style.opacity = '0';
+      labelsLayer.appendChild(el);
+      lineLabels.push({ lat: def.lat, el });
+    }
+
+    // Erdachse + Sonnenrichtungs-Pfeil
+    const axisGroup = new THREE.Group();
+    axisGroup.visible = false;
+    scene.add(axisGroup);
+
+    {
+      const rodGeo = new THREE.CylinderGeometry(0.0042, 0.0042, 2.58, 12);
+      const rodMat = new THREE.MeshBasicMaterial({ color: 0xd8e6ff, transparent: true, opacity: 0.92 });
+      axisGroup.add(new THREE.Mesh(rodGeo, rodMat));
+
+      const capGeo = new THREE.SphereGeometry(0.014, 12, 10);
+      const capMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const nCap = new THREE.Mesh(capGeo, capMat);
+      nCap.position.set(0, 1.29, 0);
+      const sCap = new THREE.Mesh(capGeo, capMat);
+      sCap.position.set(0, -1.29, 0);
+      axisGroup.add(nCap, sCap);
+    }
+
+    // Sonnenrichtungs-Pfeil + Subsolarpunkt-Ring + ferne Sonne
+    const sunArrowGroup = new THREE.Group();
+    axisGroup.add(sunArrowGroup);
+    {
+      const shaftGeo = new THREE.CylinderGeometry(0.0055, 0.0055, 0.76, 12);
+      // Zeigt entlang -Y auf die Erde zu (von r=2.06 nach r=1.30)
+      shaftGeo.translate(0, 1.68, 0);
+      const coneGeo = new THREE.ConeGeometry(0.022, 0.08, 14);
+      coneGeo.rotateX(Math.PI);
+      coneGeo.translate(0, 1.26, 0);
+      const goldMat = new THREE.MeshBasicMaterial({ color: 0xf4b942 });
+      sunArrowGroup.add(new THREE.Mesh(shaftGeo, goldMat));
+      sunArrowGroup.add(new THREE.Mesh(coneGeo, goldMat));
+
+      // Kleiner goldener Subsolarpunkt-Ring auf der Oberfläche
+      const subRingGeo = new THREE.RingGeometry(0.018, 0.028, 32);
+      subRingGeo.rotateX(-Math.PI / 2);
+      const subRing = new THREE.Mesh(
+        subRingGeo,
+        new THREE.MeshBasicMaterial({ color: 0xf4b942, side: THREE.DoubleSide })
+      );
+      subRing.position.y = 1.0045;
+      sunArrowGroup.add(subRing);
+
+      // Leuchtender Sonnen-Sprite im fernen Raum
+      const c = document.createElement('canvas');
+      c.width = 128;
+      c.height = 128;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(64, 64, 4, 64, 64, 62);
+      grad.addColorStop(0, 'rgba(255, 248, 210, 1)');
+      grad.addColorStop(0.25, 'rgba(244, 185, 66, 0.92)');
+      grad.addColorStop(0.6, 'rgba(244, 160, 40, 0.25)');
+      grad.addColorStop(1, 'rgba(244, 160, 40, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 128, 128);
+      const sunSpriteTex = new THREE.CanvasTexture(c);
+      const sunSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: sunSpriteTex,
+          blending: THREE.AdditiveBlending,
+          transparent: true,
+          depthWrite: false,
+        })
+      );
+      sunSprite.position.set(0, 18, 0);
+      sunSprite.scale.set(2.8, 2.8, 1);
+      sunArrowGroup.add(sunSprite);
+    }
+
+    const northPoleBadge = document.createElement('div');
+    northPoleBadge.className = 'pole-badge';
+    northPoleBadge.textContent = 'N';
+    northPoleBadge.style.opacity = '0';
+    const southPoleBadge = document.createElement('div');
+    southPoleBadge.className = 'pole-badge';
+    southPoleBadge.textContent = 'S';
+    southPoleBadge.style.opacity = '0';
+    labelsLayer.append(northPoleBadge, southPoleBadge);
+
+    // ------------------------------------------------------------
+    // 6. Zeit-Zustand & UI-Anbindung
+    // ------------------------------------------------------------
+    const MONTHS_SHORT = ['Jan.', 'Feb.', 'Mär.', 'Apr.', 'Mai', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Okt.', 'Nov.', 'Dez.'];
+
+    const mezInitial = new Date(Date.now() + 3600000);
+    let simYear = mezInitial.getUTCFullYear();
+    let simDayOfYear =
+      Math.round(
+        (Date.UTC(simYear, mezInitial.getUTCMonth(), mezInitial.getUTCDate()) - Date.UTC(simYear, 0, 1)) / 86400000
+      ) + 1;
+    let simMezMinutes = mezInitial.getUTCHours() * 60 + mezInitial.getUTCMinutes();
+
+    let isPlaying = false;
+    let followSun = true; // true = Erde dreht, false = Erde fix
+    let currentSun = computeSunPosition(stateToUtcDate(simYear, simDayOfYear, simMezMinutes));
+
+    const timeSlider = document.getElementById('time-slider');
+    const dateSlider = document.getElementById('date-slider');
+    const timeReadout = document.getElementById('time-readout');
+    const dateReadout = document.getElementById('date-readout');
+    const btnPlay = document.getElementById('btn-play');
+    const iconPlay = document.getElementById('icon-play');
+    const iconPause = document.getElementById('icon-pause');
+    const btnMode = document.getElementById('btn-mode');
+    const presetButtons = Array.from(document.querySelectorAll('.preset-btn[data-month]'));
+
+    function updateTimeReadoutAndSun(adjustCamForSun) {
+      const prevLon = currentSun.subsolarLon;
+      const utcDate = stateToUtcDate(simYear, simDayOfYear, simMezMinutes);
+      currentSun = computeSunPosition(utcDate);
+
+      if (adjustCamForSun && followSun) {
+        const dLon = shortestLonDelta(prevLon, currentSun.subsolarLon);
+        camLon = wrapLon(camLon + dLon);
+      }
+
+      earthUniforms.sunDir.value.copy(currentSun.sunDir);
+      sunDirLight.position.copy(currentSun.sunDir).multiplyScalar(10);
+      sunArrowGroup.quaternion.setFromUnitVectors(upAxis, currentSun.sunDir);
+
+      // UI-Anzeigen aktualisieren
+      const totalMin = Math.round(simMezMinutes);
+      const hh = Math.floor(totalMin / 60);
+      const mm = totalMin % 60;
+      timeReadout.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} MEZ`;
+      timeSlider.value = String(clamp(totalMin, 0, 1440));
+
+      const dispDate = new Date(Date.UTC(simYear, 0, 1) + (simDayOfYear - 1) * 86400000);
+      dateReadout.textContent = `${dispDate.getUTCDate()}. ${MONTHS_SHORT[dispDate.getUTCMonth()]}`;
+      dateSlider.max = String(daysInYear(simYear));
+      dateSlider.value = String(simDayOfYear);
+
+      for (const btn of presetButtons) {
+        const m = Number(btn.dataset.month);
+        const d = Number(btn.dataset.day);
+        const match = dayOfYearFromMonthDay(simYear, m, d) === simDayOfYear;
+        btn.classList.toggle('active', match);
+      }
+    }
+
+    timeSlider.addEventListener('input', () => {
+      simMezMinutes = Number(timeSlider.value);
+      updateTimeReadoutAndSun(true);
+    });
+
+    dateSlider.addEventListener('input', () => {
+      simDayOfYear = Number(dateSlider.value);
+      updateTimeReadoutAndSun(false);
+    });
+
+    for (const btn of presetButtons) {
+      btn.addEventListener('click', () => {
+        simDayOfYear = dayOfYearFromMonthDay(simYear, Number(btn.dataset.month), Number(btn.dataset.day));
+        updateTimeReadoutAndSun(false);
+      });
+    }
+
+    document.getElementById('btn-now').addEventListener('click', () => {
+      const nowMez = new Date(Date.now() + 3600000);
+      simYear = nowMez.getUTCFullYear();
+      simDayOfYear =
+        Math.round(
+          (Date.UTC(simYear, nowMez.getUTCMonth(), nowMez.getUTCDate()) - Date.UTC(simYear, 0, 1)) / 86400000
+        ) + 1;
+      simMezMinutes = nowMez.getUTCHours() * 60 + nowMez.getUTCMinutes() + nowMez.getUTCSeconds() / 60;
+      updateTimeReadoutAndSun(false);
+    });
+
+    function setPlaying(next) {
+      isPlaying = next;
+      btnPlay.classList.toggle('playing', isPlaying);
+      iconPlay.style.display = isPlaying ? 'none' : 'block';
+      iconPause.style.display = isPlaying ? 'block' : 'none';
+      btnPlay.setAttribute('aria-label', isPlaying ? 'Zeitraffer pausieren' : 'Zeitraffer starten');
+    }
+
+    btnPlay.addEventListener('click', () => setPlaying(!isPlaying));
+
+    btnMode.addEventListener('click', () => {
+      followSun = !followSun;
+      btnMode.classList.toggle('active', followSun);
+      btnMode.textContent = followSun ? 'Erde dreht' : 'Erde fix';
+    });
+
+    // Linien & Achse Toggles
+    const btnLines = document.getElementById('btn-lines');
+    const btnAxis = document.getElementById('btn-axis');
+
+    btnLines.addEventListener('click', () => {
+      const on = !linesGroup.visible;
+      linesGroup.visible = on;
+      btnLines.classList.toggle('lines-active', on);
+      btnLines.setAttribute('aria-pressed', String(on));
+    });
+
+    btnAxis.addEventListener('click', () => {
+      const on = !axisGroup.visible;
+      axisGroup.visible = on;
+      btnAxis.classList.toggle('active', on);
+      btnAxis.setAttribute('aria-pressed', String(on));
+    });
+
+    // Dock einklappen
+    const dock = document.getElementById('dock');
+    const dockChevron = document.getElementById('dock-chevron');
+    document.getElementById('dock-collapse').addEventListener('click', () => {
+      const collapsed = dock.classList.toggle('collapsed');
+      dockChevron.style.transform = collapsed ? 'rotate(180deg)' : 'rotate(0deg)';
+    });
+
+    // Touch-/Pointer-Events auf UI dürfen keine Kugel-Drehung auslösen
+    for (const uiRoot of document.querySelectorAll('.hud-top, .dock-wrap')) {
+      uiRoot.addEventListener('pointerdown', (e) => e.stopPropagation());
+      uiRoot.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    }
+
+    // ------------------------------------------------------------
+    // 7. iPad Touch-Orbit, Trägheit, Pinch-Zoom & Fly-To
+    // ------------------------------------------------------------
+    let camLat = 36;
+    let camLon = 12;
+    let camDist = 2.85;
+    let velLat = 0;
+    let velLon = 0;
+
+    let flyAnim = null;
+
+    function flyToLatLon(targetLat, targetLon, targetDist) {
+      velLat = 0;
+      velLon = 0;
+      flyAnim = {
+        startLat: camLat,
+        startLon: camLon,
+        startDist: camDist,
+        targetLat: clamp(targetLat, -89.5, 89.5),
+        targetLon: wrapLon(targetLon),
+        targetDist: clamp(targetDist, 1.035, 4.2),
+        startTime: performance.now(),
+        duration: 850,
+      };
+    }
+
+    const pointers = new Map();
+    let prevSingle = null;
+    let downSingle = null;
+    let movedSinceDown = false;
+    let prevPinchDist = null;
+
+    const raycaster = new THREE.Raycaster();
+
+    // iOS Safari native Gesten auf Stage unterbinden
+    for (const evt of ['gesturestart', 'gesturechange', 'gestureend']) {
+      stage.addEventListener(evt, (e) => e.preventDefault(), { passive: false });
+    }
+
+    stage.addEventListener('pointerdown', (e) => {
+      flyAnim = null;
+      closeSearchDropdown();
+      stage.setPointerCapture?.(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size === 1) {
+        prevSingle = { x: e.clientX, y: e.clientY };
+        downSingle = { x: e.clientX, y: e.clientY };
+        movedSinceDown = false;
+        velLat = 0;
+        velLon = 0;
+        prevPinchDist = null;
+      } else if (pointers.size === 2) {
+        const pts = Array.from(pointers.values());
+        prevPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        prevSingle = null;
+        velLat = 0;
+        velLon = 0;
+      }
+    });
+
+    stage.addEventListener('pointermove', (e) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (pointers.size === 1 && prevSingle) {
+        const dx = e.clientX - prevSingle.x;
+        const dy = e.clientY - prevSingle.y;
+        prevSingle = { x: e.clientX, y: e.clientY };
+
+        if (downSingle && Math.hypot(e.clientX - downSingle.x, e.clientY - downSingle.y) > 8) {
+          movedSinceDown = true;
+        }
+
+        const sens = 0.24 * clamp((camDist - 1.0) / 1.85, 0.04, 1.5);
+        const stepLon = -dx * sens;
+        const stepLat = dy * sens;
+
+        camLon = wrapLon(camLon + stepLon);
+        camLat = clamp(camLat + stepLat, -89.5, 89.5);
+
+        velLon = velLon * 0.45 + stepLon * 0.55;
+        velLat = velLat * 0.45 + stepLat * 0.55;
+      } else if (pointers.size === 2) {
+        const pts = Array.from(pointers.values());
+        const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        if (prevPinchDist && d > 8) {
+          camDist = clamp(camDist * (prevPinchDist / d), 1.035, 4.2);
+        }
+        prevPinchDist = d;
+        movedSinceDown = true;
+      }
+    });
+
+    function onPointerEnd(e) {
+      const wasSingleTap = pointers.size === 1 && !movedSinceDown && e.type === 'pointerup';
+      pointers.delete(e.pointerId);
+
+      if (wasSingleTap) {
+        const rect = canvas.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        raycaster.setFromCamera(ndc, camera);
+        const hits = raycaster.intersectObjects(pinsGroup.children, true);
+        if (hits.length > 0 && hits[0].object.userData.pinId) {
+          const hitPin = activePins.find((p) => p.id === hits[0].object.userData.pinId);
+          if (hitPin) {
+            flyToLatLon(hitPin.lat, hitPin.lon, Math.min(camDist, 1.9));
+          }
+        }
+      }
+
+      if (pointers.size === 1) {
+        const remaining = Array.from(pointers.values())[0];
+        prevSingle = { x: remaining.x, y: remaining.y };
+        prevPinchDist = null;
+      } else if (pointers.size === 0) {
+        prevSingle = null;
+        prevPinchDist = null;
+      }
+    }
+
+    stage.addEventListener('pointerup', onPointerEnd);
+    stage.addEventListener('pointercancel', onPointerEnd);
+
+    stage.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        flyAnim = null;
+        const factor = Math.exp(e.deltaY * 0.0011);
+        camDist = clamp(camDist * factor, 1.035, 4.2);
+      },
+      { passive: false }
+    );
+
+    // ------------------------------------------------------------
+    // 8. Dreistufige Ortsuche (Sofort-Index -> Open-Meteo -> Photon)
+    // ------------------------------------------------------------
+    const searchInput = document.getElementById('search-input');
+    const searchClear = document.getElementById('search-clear');
+    const searchResultsEl = document.getElementById('search-results');
+
+    let searchDebounce = null;
+    let searchAbort = null;
+
+    function closeSearchDropdown() {
+      searchResultsEl.classList.remove('open');
+    }
+
+    function formatCoord(lat, lon) {
+      const ns = lat >= 0 ? 'N' : 'S';
+      const ew = lon >= 0 ? 'O' : 'W';
+      return `${Math.abs(lat).toFixed(1)}° ${ns}, ${Math.abs(lon).toFixed(1)}° ${ew}`;
+    }
+
+    function matchLocalPlaces(query) {
+      const q = normalizeSearch(query);
+      if (!q) return [];
+      const scored = [];
+      for (const p of LOCAL_PLACES) {
+        const nName = normalizeSearch(p.name);
+        const nRegion = normalizeSearch(p.region || '');
+        const aliases = (p.aliases || []).map(normalizeSearch);
+
+        let score = 0;
+        if (nName === q) score = 100;
+        else if (nName.startsWith(q)) score = 85;
+        else if (aliases.some((a) => a.startsWith(q))) score = 75;
+        else if (nName.includes(q)) score = 60;
+        else if (aliases.some((a) => a.includes(q))) score = 50;
+        else if (nRegion.includes(q)) score = 30;
+
+        if (score > 0) scored.push({ place: p, score });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, 6).map((s) => s.place);
+    }
+
+    function dedupePlaces(list) {
+      const out = [];
+      for (const item of list) {
+        const dup = out.some(
+          (o) => Math.abs(o.lat - item.lat) < 0.15 && Math.abs(o.lon - item.lon) < 0.15
+        );
+        if (!dup) out.push(item);
+      }
+      return out.slice(0, 7);
+    }
+
+    function renderSearchResults(items) {
+      searchResultsEl.innerHTML = '';
+      if (items.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'search-empty';
+        empty.textContent = 'Keine Treffer';
+        searchResultsEl.appendChild(empty);
+        searchResultsEl.classList.add('open');
+        return;
+      }
+
+      for (const item of items) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'search-item';
+
+        const main = document.createElement('div');
+        main.className = 'search-item-main';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'search-item-name';
+        nameEl.textContent = item.name;
+        const subEl = document.createElement('div');
+        subEl.className = 'search-item-sub';
+        subEl.textContent = item.region || '';
+        main.append(nameEl, subEl);
+
+        const coordEl = document.createElement('div');
+        coordEl.className = 'search-item-coord';
+        coordEl.textContent = formatCoord(item.lat, item.lon);
+
+        btn.append(main, coordEl);
+        btn.addEventListener('click', () => {
+          addOrFocusPin(item);
+          closeSearchDropdown();
+          searchInput.value = '';
+          searchClear.classList.remove('visible');
+          searchInput.blur();
+        });
+        searchResultsEl.appendChild(btn);
+      }
+      searchResultsEl.classList.add('open');
+    }
+
+    async function fetchRemotePlaces(query, signal) {
+      const results = [];
+      try {
+        const omUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=de&format=json`;
+        const res = await fetch(omUrl, { signal });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.results)) {
+            for (const r of data.results) {
+              const regionParts = [r.admin1, r.country].filter(Boolean);
+              results.push({
+                name: r.name,
+                region: regionParts.join(' · '),
+                lat: r.latitude,
+                lon: r.longitude,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') throw err;
+      }
+
+      if (results.length < 2) {
+        try {
+          const phUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&lang=de&limit=5`;
+          const res = await fetch(phUrl, { signal });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data.features)) {
+              for (const f of data.features) {
+                const props = f.properties || {};
+                const coords = f.geometry && f.geometry.coordinates;
+                if (!coords || !props.name) continue;
+                const regionParts = [props.state, props.country].filter(Boolean);
+                results.push({
+                  name: props.name,
+                  region: regionParts.join(' · '),
+                  lat: coords[1],
+                  lon: coords[0],
+                });
+              }
+            }
+          }
+        } catch (err) {
+          if (err.name === 'AbortError') throw err;
+        }
+      }
+
+      return results;
+    }
+
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim();
+      searchClear.classList.toggle('visible', q.length > 0);
+      clearTimeout(searchDebounce);
+      if (searchAbort) searchAbort.abort();
+
+      if (q.length < 2) {
+        if (q.length === 0) closeSearchDropdown();
+        else renderSearchResults(matchLocalPlaces(q));
+        return;
+      }
+
+      const localMatches = matchLocalPlaces(q);
+      if (localMatches.length > 0) {
+        renderSearchResults(localMatches);
+      }
+
+      searchDebounce = setTimeout(async () => {
+        const currentQuery = searchInput.value.trim();
+        if (currentQuery.length < 2) return;
+        searchAbort = new AbortController();
+        try {
+          const remote = await fetchRemotePlaces(currentQuery, searchAbort.signal);
+          if (searchInput.value.trim() !== currentQuery) return;
+          renderSearchResults(dedupePlaces([...localMatches, ...remote]));
+        } catch (err) {
+          if (err.name !== 'AbortError' && localMatches.length === 0) {
+            renderSearchResults([]);
+          }
+        }
+      }, 260);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const first = searchResultsEl.querySelector('.search-item');
+        if (first) first.click();
+      }
+    });
+
+    searchClear.addEventListener('click', () => {
+      searchInput.value = '';
+      searchClear.classList.remove('visible');
+      closeSearchDropdown();
+      searchInput.focus();
+    });
+
+    // ------------------------------------------------------------
+    // 9. Resize & VisualViewport für iPadOS-Tastatur
+    // ------------------------------------------------------------
+    function handleResize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+      renderer.setSize(w, h, false);
+    }
+
+    window.addEventListener('resize', handleResize);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize);
+    }
+
+    // ------------------------------------------------------------
+    // 10. Projektion der 3D-Labels & Haupt-Renderloop (60 fps)
+    // ------------------------------------------------------------
+    const _projVec = new THREE.Vector3();
+    const _camUnit = new THREE.Vector3();
+
+    function projectToScreen(vec3, width, height) {
+      _projVec.copy(vec3).project(camera);
+      if (_projVec.z > 1) return null;
+      return {
+        x: (_projVec.x * 0.5 + 0.5) * width,
+        y: (-_projVec.y * 0.5 + 0.5) * height,
+      };
+    }
+
+    function updateProjectedOverlays(nowMs) {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      _camUnit.copy(camera.position).normalize();
+
+      // Stecknadel-Skalierung & Labels
+      const pinScale = clamp((camDist - 0.92) * 0.55, 0.14, 1.35);
+      for (const pin of activePins) {
+        const age = Math.min(1, (nowMs - pin.createdAt) / 260);
+        const dropEase = age < 1 ? 1 + Math.sin(age * Math.PI) * 0.22 : 1;
+        pin.group.scale.setScalar(pinScale * dropEase);
+
+        const frontDot = pin.normal.dot(_camUnit);
+        if (frontDot < 0.08) {
+          pin.labelEl.style.opacity = '0';
+          pin.labelEl.style.pointerEvents = 'none';
+          continue;
+        }
+
+        const headWorld = pin.normal.clone().multiplyScalar(1.001 + 0.068 * pinScale);
+        const pt = projectToScreen(headWorld, w, h);
+        if (!pt) {
+          pin.labelEl.style.opacity = '0';
+          pin.labelEl.style.pointerEvents = 'none';
+          continue;
+        }
+
+        pin.labelEl.style.opacity = frontDot < 0.18 ? String((frontDot - 0.08) / 0.1) : '1';
+        pin.labelEl.style.pointerEvents = 'auto';
+        pin.labelEl.style.transform = `translate3d(${(pt.x + 10).toFixed(1)}px, ${(pt.y - 12).toFixed(1)}px, 0)`;
+      }
+
+      // Breitenkreis-Labels
+      for (const item of lineLabels) {
+        if (!linesGroup.visible) {
+          item.el.style.opacity = '0';
+          continue;
+        }
+        const pos = latLonToVec3(item.lat, camLon, 1.004);
+        const dot = pos.clone().normalize().dot(_camUnit);
+        if (dot < 0.16) {
+          item.el.style.opacity = '0';
+          continue;
+        }
+        const pt = projectToScreen(pos, w, h);
+        if (!pt) {
+          item.el.style.opacity = '0';
+          continue;
+        }
+        item.el.style.opacity = '0.92';
+        item.el.style.transform = `translate3d(${(pt.x - 20).toFixed(1)}px, ${(pt.y - 10).toFixed(1)}px, 0)`;
+      }
+
+      // Nord-/Südpol-Badges auf der Achse
+      if (axisGroup.visible) {
+        const nPt = projectToScreen(new THREE.Vector3(0, 1.35, 0), w, h);
+        const sPt = projectToScreen(new THREE.Vector3(0, -1.35, 0), w, h);
+        if (nPt) {
+          northPoleBadge.style.opacity = '1';
+          northPoleBadge.style.transform = `translate3d(${(nPt.x - 12).toFixed(1)}px, ${(nPt.y - 12).toFixed(1)}px, 0)`;
+        } else {
+          northPoleBadge.style.opacity = '0';
+        }
+        if (sPt) {
+          southPoleBadge.style.opacity = '1';
+          southPoleBadge.style.transform = `translate3d(${(sPt.x - 12).toFixed(1)}px, ${(sPt.y - 12).toFixed(1)}px, 0)`;
+        } else {
+          southPoleBadge.style.opacity = '0';
+        }
+      } else {
+        northPoleBadge.style.opacity = '0';
+        southPoleBadge.style.opacity = '0';
+      }
+    }
+
+    // Initiale Sonnenberechnung
+    updateTimeReadoutAndSun(false);
+
+    let lastFrameTime = performance.now();
+
+    function animate(nowMs) {
+      requestAnimationFrame(animate);
+      const dt = Math.min(0.05, (nowMs - lastFrameTime) / 1000);
+      lastFrameTime = nowMs;
+
+      // Zeitraffer: 90 simulierte Minuten pro Sekunde (24h in 16s)
+      if (isPlaying) {
+        simMezMinutes += dt * 90;
+        if (simMezMinutes >= 1440) {
+          simMezMinutes -= 1440;
+          simDayOfYear += 1;
+          if (simDayOfYear > daysInYear(simYear)) {
+            simDayOfYear = 1;
+            simYear += 1;
+          }
+        }
+        updateTimeReadoutAndSun(true);
+      }
+
+      // Fly-To oder Auslauf-Trägheit
+      if (flyAnim) {
+        const tRaw = clamp((nowMs - flyAnim.startTime) / flyAnim.duration, 0, 1);
+        const t = tRaw < 0.5 ? 4 * tRaw * tRaw * tRaw : 1 - Math.pow(-2 * tRaw + 2, 3) / 2;
+        const dLon = shortestLonDelta(flyAnim.startLon, flyAnim.targetLon);
+        camLat = flyAnim.startLat + (flyAnim.targetLat - flyAnim.startLat) * t;
+        camLon = wrapLon(flyAnim.startLon + dLon * t);
+        camDist = flyAnim.startDist + (flyAnim.targetDist - flyAnim.startDist) * t;
+        if (tRaw >= 1) flyAnim = null;
+      } else if (pointers.size === 0 && (Math.abs(velLat) > 0.002 || Math.abs(velLon) > 0.002)) {
+        camLon = wrapLon(camLon + velLon);
+        camLat = clamp(camLat + velLat, -89.5, 89.5);
+        const decay = Math.pow(0.91, dt * 60);
+        velLon *= decay;
+        velLat *= decay;
+      }
+
+      // Kamera aktualisieren
+      camera.position.copy(latLonToVec3(camLat, camLon, camDist));
+      camera.up.set(0, 1, 0);
+      camera.lookAt(0, 0, 0);
+      earthUniforms.camPos.value.copy(camera.position);
+
+      // Satellitenkacheln aktualisieren & weich einblenden
+      updateSatelliteTiles(nowMs, camDist);
+      for (const entry of tileCache.values()) {
+        if (entry.state === 'ready' && entry.mesh && entry.mesh.visible && entry.opacity < 1) {
+          entry.opacity = Math.min(1, entry.opacity + dt * 5.0);
+          entry.mat.uniforms.uOpacity.value = entry.opacity;
+        }
+      }
+
+      renderer.render(scene, camera);
+      updateProjectedOverlays(nowMs);
+    }
+
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
