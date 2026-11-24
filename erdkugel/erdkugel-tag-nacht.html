@@ -202,6 +202,25 @@
       will-change: transform, opacity;
     }
 
+    .tilt-badge {
+      position: absolute;
+      left: 0;
+      top: 0;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(11, 18, 32, 0.88);
+      border: 1px solid rgba(244, 185, 66, 0.68);
+      color: var(--gold);
+      font-size: 12.5px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+      transform: translate3d(-9999px, -9999px, 0);
+      will-change: transform, opacity;
+    }
+
     /* HUD */
     .hud-top {
       position: fixed;
@@ -808,11 +827,12 @@
         </svg>
         <span>Linien</span>
       </button>
-      <button id="btn-axis" class="toggle-btn glass" type="button" aria-pressed="false">
+      <button id="btn-axis" class="toggle-btn glass active" type="button" aria-pressed="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-          <line x1="12" y1="2" x2="12" y2="22" />
-          <circle cx="12" cy="12" r="6.5" />
-          <path d="M18.5 5.5L22 2M22 2H19M22 2V5" stroke="#f4b942" />
+          <line x1="12" y1="2.5" x2="12" y2="21.5" stroke-dasharray="2 2.4" opacity="0.45" />
+          <line x1="15.8" y1="2.8" x2="8.2" y2="21.2" />
+          <circle cx="12" cy="12" r="6" />
+          <path d="M12 5.4A6.6 6.6 0 0 1 14.6 5.9" stroke="#f4b942" stroke-width="2" />
         </svg>
         <span>Achse</span>
       </button>
@@ -898,7 +918,7 @@
       return { lat, lon };
     }
 
-    function computeSunPosition(utcDate) {
+    function computeSunPosition(utcDate, overrideUtcMinutes = null) {
       const jd = utcDate.getTime() / 86400000 + 2440587.5;
       const T = (jd - 2451545.0) / 36525.0;
 
@@ -937,15 +957,17 @@
           1.25 * e * e * Math.sin(2 * Mrad));
 
       const utcMinutes =
-        utcDate.getUTCHours() * 60 +
-        utcDate.getUTCMinutes() +
-        utcDate.getUTCSeconds() / 60 +
-        utcDate.getUTCMilliseconds() / 60000;
+        overrideUtcMinutes !== null
+          ? overrideUtcMinutes
+          : utcDate.getUTCHours() * 60 +
+            utcDate.getUTCMinutes() +
+            utcDate.getUTCSeconds() / 60 +
+            utcDate.getUTCMilliseconds() / 60000;
 
       const subsolarLon = wrapLon(180 - (utcMinutes + eqTime) / 4);
       const sunDir = latLonToVec3(subsolarLat, subsolarLon, 1).normalize();
 
-      return { subsolarLat, subsolarLon, eqTime, sunDir };
+      return { subsolarLat, subsolarLon, eqTime, sunDir, lambda, obliqCorr };
     }
 
     function daysInYear(year) {
@@ -1213,8 +1235,15 @@
       }
     `;
 
+    // Ekliptik-Bezugssystem: Die Erdbahnebene liegt waagrecht (XZ),
+    // die Erdachse ist in earthTiltGroup fest um 23.44° geneigt.
+    const DEFAULT_OBLIQUITY_RAD = 23.439 * RAD;
+    const earthTiltGroup = new THREE.Group();
+    earthTiltGroup.rotation.z = -DEFAULT_OBLIQUITY_RAD;
+    scene.add(earthTiltGroup);
+
     const earthGroup = new THREE.Group();
-    scene.add(earthGroup);
+    earthTiltGroup.add(earthGroup);
 
     const earthGeo = new THREE.SphereGeometry(1, 96, 64);
     const earthMat = new THREE.ShaderMaterial({
@@ -1577,7 +1606,7 @@
 
       const z = computeDesiredZoom(camDist);
       const n = Math.pow(2, z);
-      _invEarthQuat.copy(earthGroup.quaternion).invert();
+      earthGroup.getWorldQuaternion(_invEarthQuat).invert();
       _camDirLocal.copy(camera.position).applyQuaternion(_invEarthQuat).normalize();
       const candidates = new Map();
 
@@ -1677,7 +1706,6 @@
     let nextPinId = 1;
 
     const pinsBar = document.getElementById('pins-bar');
-    const upAxis = new THREE.Vector3(0, 1, 0);
 
     function renderPinsBar() {
       pinsBar.innerHTML = '';
@@ -1822,47 +1850,152 @@
       lineLabels.push({ lat: def.lat, el });
     }
 
-    // Erdachse + Sonnenrichtungs-Pfeil
-    const axisGroup = new THREE.Group();
-    axisGroup.visible = false;
-    scene.add(axisGroup);
+    // Erdachse (um 23.5° geneigt) + Ekliptik-Referenz (Senkrechte, 23.5°-Winkel, Erdbahn, Sonnenstrahlen)
+    let axisVisible = true;
+
+    // Geneigte Erdachse + Polkappen (Kind von earthTiltGroup -> immer 23.4° geneigt)
+    const tiltedAxisGroup = new THREE.Group();
+    tiltedAxisGroup.visible = axisVisible;
+    earthTiltGroup.add(tiltedAxisGroup);
 
     {
-      const rodGeo = new THREE.CylinderGeometry(0.0042, 0.0042, 2.58, 12);
-      const rodMat = new THREE.MeshBasicMaterial({ color: 0xd8e6ff, transparent: true, opacity: 0.92 });
-      axisGroup.add(new THREE.Mesh(rodGeo, rodMat));
+      const rodGeo = new THREE.CylinderGeometry(0.0052, 0.0052, 2.48, 14);
+      const rodMat = new THREE.MeshBasicMaterial({ color: 0xe6f0ff, transparent: true, opacity: 0.95 });
+      tiltedAxisGroup.add(new THREE.Mesh(rodGeo, rodMat));
 
-      const capGeo = new THREE.SphereGeometry(0.014, 12, 10);
+      const capGeo = new THREE.SphereGeometry(0.016, 12, 10);
       const capMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
       const nCap = new THREE.Mesh(capGeo, capMat);
-      nCap.position.set(0, 1.29, 0);
+      nCap.position.set(0, 1.24, 0);
       const sCap = new THREE.Mesh(capGeo, capMat);
-      sCap.position.set(0, -1.29, 0);
-      axisGroup.add(nCap, sCap);
+      sCap.position.set(0, -1.24, 0);
+      tiltedAxisGroup.add(nCap, sCap);
     }
 
-    // Sonnenrichtungs-Pfeil + Subsolarpunkt-Ring + ferne Sonne
-    const sunArrowGroup = new THREE.Group();
-    axisGroup.add(sunArrowGroup);
-    {
-      const shaftGeo = new THREE.CylinderGeometry(0.0055, 0.0055, 0.76, 12);
-      // Zeigt entlang -Y auf die Erde zu (von r=2.06 nach r=1.30)
-      shaftGeo.translate(0, 1.68, 0);
-      const coneGeo = new THREE.ConeGeometry(0.022, 0.08, 14);
-      coneGeo.rotateX(Math.PI);
-      coneGeo.translate(0, 1.26, 0);
-      const goldMat = new THREE.MeshBasicMaterial({ color: 0xf4b942 });
-      sunArrowGroup.add(new THREE.Mesh(shaftGeo, goldMat));
-      sunArrowGroup.add(new THREE.Mesh(coneGeo, goldMat));
+    // Ekliptik-Referenz im Weltraum (waagrechte Erdbahnebene + gestrichelte Senkrechte + 23.5°-Bogen + parallele Sonnenstrahlen)
+    const eclipticAxisGroup = new THREE.Group();
+    eclipticAxisGroup.visible = axisVisible;
+    scene.add(eclipticAxisGroup);
 
-      // Kleiner goldener Subsolarpunkt-Ring auf der Oberfläche
+    {
+      // Gestrichelte Senkrechte auf die Erdbahnebene (0°-Referenzlinie)
+      const vertPts = [new THREE.Vector3(0, -1.24, 0), new THREE.Vector3(0, 1.24, 0)];
+      const vertGeo = new THREE.BufferGeometry().setFromPoints(vertPts);
+      const vertMat = new THREE.LineDashedMaterial({
+        color: 0x9ec5ff,
+        dashSize: 0.032,
+        gapSize: 0.024,
+        transparent: true,
+        opacity: 0.58,
+      });
+      const vertLine = new THREE.Line(vertGeo, vertMat);
+      vertLine.computeLineDistances();
+      eclipticAxisGroup.add(vertLine);
+
+      // Dezenter Ring der Erdbahnebene (waagrecht, y = 0)
+      const orbitPts = [];
+      const orbitSteps = 128;
+      const orbitR = 1.26;
+      for (let i = 0; i <= orbitSteps; i++) {
+        const a = (i / orbitSteps) * Math.PI * 2;
+        orbitPts.push(new THREE.Vector3(Math.cos(a) * orbitR, 0, Math.sin(a) * orbitR));
+      }
+      const orbitGeo = new THREE.BufferGeometry().setFromPoints(orbitPts);
+      const orbitMat = new THREE.LineBasicMaterial({
+        color: 0xf4b942,
+        transparent: true,
+        opacity: 0.22,
+      });
+      eclipticAxisGroup.add(new THREE.Line(orbitGeo, orbitMat));
+
+      // 23.5°-Winkelsektor & goldener Bogen zwischen Senkrechter (+Y) und geneigter Erdachse
+      const arcSteps = 28;
+      const rInner = 1.015;
+      const rOuter = 1.16;
+      const sectorPositions = [];
+      const arcPts = [];
+
+      for (let i = 0; i <= arcSteps; i++) {
+        const theta = (DEFAULT_OBLIQUITY_RAD * i) / arcSteps;
+        const sx = Math.sin(theta);
+        const cy = Math.cos(theta);
+        arcPts.push(new THREE.Vector3(sx * rOuter, cy * rOuter, 0));
+
+        if (i < arcSteps) {
+          const thetaNext = (DEFAULT_OBLIQUITY_RAD * (i + 1)) / arcSteps;
+          const sxN = Math.sin(thetaNext);
+          const cyN = Math.cos(thetaNext);
+          sectorPositions.push(
+            sx * rInner, cy * rInner, 0,
+            sx * rOuter, cy * rOuter, 0,
+            sxN * rOuter, cyN * rOuter, 0,
+            sx * rInner, cy * rInner, 0,
+            sxN * rOuter, cyN * rOuter, 0,
+            sxN * rInner, cyN * rInner, 0
+          );
+        }
+      }
+
+      const sectorGeo = new THREE.BufferGeometry();
+      sectorGeo.setAttribute('position', new THREE.Float32BufferAttribute(sectorPositions, 3));
+      const sectorMat = new THREE.MeshBasicMaterial({
+        color: 0xf4b942,
+        transparent: true,
+        opacity: 0.25,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      eclipticAxisGroup.add(new THREE.Mesh(sectorGeo, sectorMat));
+
+      const arcGeo = new THREE.BufferGeometry().setFromPoints(arcPts);
+      const arcMat = new THREE.LineBasicMaterial({
+        color: 0xf4b942,
+        transparent: true,
+        opacity: 0.95,
+      });
+      eclipticAxisGroup.add(new THREE.Line(arcGeo, arcMat));
+    }
+
+    // Waagrechte, parallele Sonnenstrahlen + Subsolarpunkt-Ring + ferne Sonne
+    // Lokales +X zeigt immer Richtung Sonne (in der waagrechten XZ-Ebene), +Y bleibt senkrecht.
+    const sunArrowGroup = new THREE.Group();
+    eclipticAxisGroup.add(sunArrowGroup);
+    {
+      const goldMainMat = new THREE.MeshBasicMaterial({ color: 0xf4b942 });
+      const goldSideMat = new THREE.MeshBasicMaterial({
+        color: 0xf4b942,
+        transparent: true,
+        opacity: 0.62,
+      });
+
+      function addHorizontalRay(yOffset, startX, endX, shaftR, coneR, coneH, mat) {
+        const shaftLen = Math.max(0.1, startX - (endX + coneH));
+        const shaftGeo = new THREE.CylinderGeometry(shaftR, shaftR, shaftLen, 12);
+        shaftGeo.rotateZ(Math.PI / 2);
+        shaftGeo.translate(endX + coneH + shaftLen * 0.5, yOffset, 0);
+
+        const coneGeo = new THREE.ConeGeometry(coneR, coneH, 14);
+        coneGeo.rotateZ(Math.PI / 2);
+        coneGeo.translate(endX + coneH * 0.5, yOffset, 0);
+
+        sunArrowGroup.add(new THREE.Mesh(shaftGeo, mat));
+        sunArrowGroup.add(new THREE.Mesh(coneGeo, mat));
+      }
+
+      // Mittlerer Hauptstrahl auf Höhe der Erdbahnebene (y = 0)
+      addHorizontalRay(0, 1.88, 1.18, 0.0058, 0.022, 0.075, goldMainMat);
+      // Zwei parallele Begleitstrahlen (oben & unten), damit der waagrechte Lichteinfall klar sichtbar ist
+      addHorizontalRay(0.48, 1.78, 1.08, 0.0036, 0.015, 0.055, goldSideMat);
+      addHorizontalRay(-0.48, 1.78, 1.08, 0.0036, 0.015, 0.055, goldSideMat);
+
+      // Kleiner goldener Subsolarpunkt-Ring auf der Oberfläche (bei y = 0 entlang +X)
       const subRingGeo = new THREE.RingGeometry(0.018, 0.028, 32);
-      subRingGeo.rotateX(-Math.PI / 2);
+      subRingGeo.rotateY(Math.PI / 2);
       const subRing = new THREE.Mesh(
         subRingGeo,
         new THREE.MeshBasicMaterial({ color: 0xf4b942, side: THREE.DoubleSide })
       );
-      subRing.position.y = 1.0045;
+      subRing.position.set(1.0045, 0, 0);
       sunArrowGroup.add(subRing);
 
       // Leuchtender Sonnen-Sprite im fernen Raum
@@ -1886,7 +2019,7 @@
           depthWrite: false,
         })
       );
-      sunSprite.position.set(0, 18, 0);
+      sunSprite.position.set(18, 0, 0);
       sunSprite.scale.set(2.8, 2.8, 1);
       sunArrowGroup.add(sunSprite);
     }
@@ -1899,7 +2032,11 @@
     southPoleBadge.className = 'pole-badge';
     southPoleBadge.textContent = 'S';
     southPoleBadge.style.opacity = '0';
-    labelsLayer.append(northPoleBadge, southPoleBadge);
+    const tiltBadge = document.createElement('div');
+    tiltBadge.className = 'tilt-badge';
+    tiltBadge.textContent = '23.5°';
+    tiltBadge.style.opacity = '0';
+    labelsLayer.append(northPoleBadge, southPoleBadge, tiltBadge);
 
     // ------------------------------------------------------------
     // 6. Zeit-Zustand & UI-Anbindung
@@ -1917,6 +2054,13 @@
     let isPlaying = false;
     let followSun = true; // true = Erde dreht, false = Erde fix
     let currentSun = computeSunPosition(stateToUtcDate(simYear, simDayOfYear, simMezMinutes));
+    let currentEarthSpinDeg = 0;
+    let currentSunWorldLon = wrapLon(currentSun.lambda - 90);
+    let dateAnim = null;
+
+    const prefersReducedMotion = window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false;
 
     const timeSlider = document.getElementById('time-slider');
     const dateSlider = document.getElementById('date-slider');
@@ -1928,24 +2072,49 @@
     const btnMode = document.getElementById('btn-mode');
     const presetButtons = Array.from(document.querySelectorAll('.preset-btn[data-month]'));
 
-    function updateTimeReadoutAndSun(mode) {
-      const prevRotDeg = -currentSun.subsolarLon;
-      const utcDate = stateToUtcDate(simYear, simDayOfYear, simMezMinutes);
-      currentSun = computeSunPosition(utcDate);
+    const _tiltedNorthAxis = new THREE.Vector3();
 
-      const newRotDeg = -currentSun.subsolarLon;
-      earthGroup.rotation.y = newRotDeg * RAD;
+    function updateTimeReadoutAndSun(mode, continuousDay = null) {
+      const prevSpinDeg = currentEarthSpinDeg;
+      const prevSunWorldLon = currentSunWorldLon;
+      const dayForSun = continuousDay !== null ? continuousDay : simDayOfYear;
+      const utcDate = stateToUtcDate(simYear, dayForSun, simMezMinutes);
+      const overrideUtcMin =
+        continuousDay !== null ? (((simMezMinutes - 60) % 1440) + 1440) % 1440 : null;
+      currentSun = computeSunPosition(utcDate, overrideUtcMin);
 
-      // Im Modus "Erde dreht" (followSun=true) bleiben Kamera & Sternenhintergrund fest im Raum!
-      // Im Modus "Erde fix" (followSun=false) oder bei reinem Datumswechsel folgt die Kamera der Kontinentlänge.
-      if (mode === 'date' || (mode === 'time' && !followSun)) {
-        const dRot = shortestLonDelta(prevRotDeg, newRotDeg);
-        camWorldLon = wrapLon(camWorldLon + dRot);
+      const obliqRad = currentSun.obliqCorr * RAD;
+      const lambdaRad = currentSun.lambda * RAD;
+
+      // Erdachse bleibt fest um ~23.44° geneigt; die Sonne scheint waagrecht in der Ekliptik-Ebene (y = 0)
+      earthTiltGroup.rotation.z = -obliqRad;
+
+      const sunDirWorld = new THREE.Vector3(Math.sin(lambdaRad), 0, Math.cos(lambdaRad)).normalize();
+      currentSunWorldLon = wrapLon(currentSun.lambda - 90);
+
+      const sunEqLonDeg =
+        Math.atan2(-Math.cos(lambdaRad), Math.cos(obliqRad) * Math.sin(lambdaRad)) * DEG;
+      currentEarthSpinDeg = wrapLon(sunEqLonDeg - currentSun.subsolarLon);
+      earthGroup.rotation.y = currentEarthSpinDeg * RAD;
+      earthTiltGroup.updateMatrixWorld(true);
+
+      // Bei Datumswechsel wandert die Kamera auf der Erdbahn mit, damit das Sonnenlicht seitlich bleibt
+      // und die beobachtete Region sowie Tag-/Nachtgrenze in jeder Jahreszeit sichtbar bleiben.
+      if (mode === 'date') {
+        const dSunLon = shortestLonDelta(prevSunWorldLon, currentSunWorldLon);
+        camWorldLon = wrapLon(camWorldLon + dSunLon);
+      } else if (mode === 'time' && !followSun) {
+        // Im Modus "Erde fix" dreht die Kamera exakt um die geneigte Erdachse mit den Kontinenten mit.
+        const dSpin = shortestLonDelta(prevSpinDeg, currentEarthSpinDeg);
+        _tiltedNorthAxis.set(0, 1, 0).applyQuaternion(earthTiltGroup.quaternion).normalize();
+        const camDir = latLonToVec3(camLat, camWorldLon, 1).applyAxisAngle(_tiltedNorthAxis, dSpin * RAD);
+        const nextCam = vec3ToLatLon(camDir);
+        camLat = clamp(nextCam.lat, -89.5, 89.5);
+        camWorldLon = wrapLon(nextCam.lon);
       }
 
-      const sunDirWorld = latLonToVec3(currentSun.subsolarLat, 0, 1).normalize();
       earthUniforms.sunDir.value.copy(sunDirWorld);
-      sunArrowGroup.quaternion.setFromUnitVectors(upAxis, sunDirWorld);
+      sunArrowGroup.rotation.y = Math.atan2(-sunDirWorld.z, sunDirWorld.x);
 
       // UI-Anzeigen aktualisieren
       const totalMin = Math.round(simMezMinutes);
@@ -1954,45 +2123,80 @@
       timeReadout.textContent = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} MEZ`;
       timeSlider.value = String(clamp(totalMin, 0, 1440));
 
-      const dispDate = new Date(Date.UTC(simYear, 0, 1) + (simDayOfYear - 1) * 86400000);
+      const totalDays = daysInYear(simYear);
+      const displayDay = ((((Math.round(dayForSun) - 1) % totalDays) + totalDays) % totalDays) + 1;
+      const dispDate = new Date(Date.UTC(simYear, 0, 1) + (displayDay - 1) * 86400000);
       dateReadout.textContent = `${dispDate.getUTCDate()}. ${MONTHS_SHORT[dispDate.getUTCMonth()]}`;
-      dateSlider.max = String(daysInYear(simYear));
-      dateSlider.value = String(simDayOfYear);
+      dateSlider.max = String(totalDays);
+      dateSlider.value = String(displayDay);
 
       for (const btn of presetButtons) {
         const m = Number(btn.dataset.month);
         const d = Number(btn.dataset.day);
-        const match = dayOfYearFromMonthDay(simYear, m, d) === simDayOfYear;
+        const match = dayOfYearFromMonthDay(simYear, m, d) === displayDay;
         btn.classList.toggle('active', match);
       }
     }
 
+    function animateToDate(targetYear, targetDay, targetMezMinutes = null) {
+      const totalDays = daysInYear(targetYear);
+      const startDay = dateAnim ? dateAnim.currentDay : simDayOfYear;
+      let deltaDays = (((targetDay - startDay) % totalDays) + totalDays) % totalDays;
+      if (deltaDays > totalDays * 0.52) {
+        deltaDays -= totalDays;
+      }
+
+      if (prefersReducedMotion || (Math.abs(deltaDays) < 0.5 && targetMezMinutes === null)) {
+        dateAnim = null;
+        simYear = targetYear;
+        simDayOfYear = targetDay;
+        if (targetMezMinutes !== null) simMezMinutes = targetMezMinutes;
+        updateTimeReadoutAndSun('date');
+        return;
+      }
+
+      simYear = targetYear;
+      const duration = clamp(420 + Math.abs(deltaDays) * 2.8, 480, 920);
+      dateAnim = {
+        startDay,
+        currentDay: startDay,
+        deltaDays,
+        targetDay,
+        startMezMinutes: simMezMinutes,
+        targetMezMinutes,
+        startTime: performance.now(),
+        duration,
+      };
+    }
+
     timeSlider.addEventListener('input', () => {
+      dateAnim = null;
       simMezMinutes = Number(timeSlider.value);
       updateTimeReadoutAndSun('time');
     });
 
     dateSlider.addEventListener('input', () => {
+      dateAnim = null;
       simDayOfYear = Number(dateSlider.value);
       updateTimeReadoutAndSun('date');
     });
 
     for (const btn of presetButtons) {
       btn.addEventListener('click', () => {
-        simDayOfYear = dayOfYearFromMonthDay(simYear, Number(btn.dataset.month), Number(btn.dataset.day));
-        updateTimeReadoutAndSun('date');
+        const targetDay = dayOfYearFromMonthDay(simYear, Number(btn.dataset.month), Number(btn.dataset.day));
+        animateToDate(simYear, targetDay);
       });
     }
 
     document.getElementById('btn-now').addEventListener('click', () => {
       const nowMez = new Date(Date.now() + 3600000);
-      simYear = nowMez.getUTCFullYear();
-      simDayOfYear =
+      const targetYear = nowMez.getUTCFullYear();
+      const targetDay =
         Math.round(
-          (Date.UTC(simYear, nowMez.getUTCMonth(), nowMez.getUTCDate()) - Date.UTC(simYear, 0, 1)) / 86400000
+          (Date.UTC(targetYear, nowMez.getUTCMonth(), nowMez.getUTCDate()) - Date.UTC(targetYear, 0, 1)) / 86400000
         ) + 1;
-      simMezMinutes = nowMez.getUTCHours() * 60 + nowMez.getUTCMinutes() + nowMez.getUTCSeconds() / 60;
-      updateTimeReadoutAndSun('date');
+      const targetMinutes = nowMez.getUTCHours() * 60 + nowMez.getUTCMinutes() + nowMez.getUTCSeconds() / 60;
+      animateToDate(targetYear, targetDay, targetMinutes);
     });
 
     function setPlaying(next) {
@@ -2023,10 +2227,11 @@
     });
 
     btnAxis.addEventListener('click', () => {
-      const on = !axisGroup.visible;
-      axisGroup.visible = on;
-      btnAxis.classList.toggle('active', on);
-      btnAxis.setAttribute('aria-pressed', String(on));
+      axisVisible = !axisVisible;
+      tiltedAxisGroup.visible = axisVisible;
+      eclipticAxisGroup.visible = axisVisible;
+      btnAxis.classList.toggle('active', axisVisible);
+      btnAxis.setAttribute('aria-pressed', String(axisVisible));
     });
 
     // Dock einklappen
@@ -2046,25 +2251,38 @@
     // ------------------------------------------------------------
     // 7. iPad Touch-Orbit, Trägheit, Pinch-Zoom & Fly-To
     // ------------------------------------------------------------
-    let camLat = 36;
-    let camWorldLon = 12;
-    let camDist = 2.85;
+    function computeDefaultCamDist() {
+      const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+      return aspect < 1 ? clamp(3.35 / aspect, 4.45, 6.8) : 4.45;
+    }
+
+    let camLat = 10;
+    let camWorldLon = -75;
+    let camDist = computeDefaultCamDist();
     let velLat = 0;
     let velLon = 0;
 
     let flyAnim = null;
+    const _flyWorldQuat = new THREE.Quaternion();
+
+    function geoToWorldLatLon(geoLat, geoLon) {
+      earthTiltGroup.updateMatrixWorld(true);
+      earthGroup.getWorldQuaternion(_flyWorldQuat);
+      const worldPos = latLonToVec3(geoLat, geoLon, 1).applyQuaternion(_flyWorldQuat);
+      return vec3ToLatLon(worldPos);
+    }
 
     function flyToLatLon(geoLat, geoLon, targetDist) {
       velLat = 0;
       velLon = 0;
-      const startGeoLon = wrapLon(camWorldLon - earthGroup.rotation.y * DEG);
+      dateAnim = null;
       flyAnim = {
         startLat: camLat,
-        startGeoLon,
+        startWorldLon: camWorldLon,
         startDist: camDist,
         targetGeoLat: clamp(geoLat, -89.5, 89.5),
         targetGeoLon: wrapLon(geoLon),
-        targetDist: clamp(targetDist, 1.035, 4.2),
+        targetDist: clamp(targetDist, 1.035, 7.2),
         startTime: performance.now(),
         duration: 850,
       };
@@ -2081,6 +2299,7 @@
 
     stage.addEventListener('pointerdown', (e) => {
       flyAnim = null;
+      dateAnim = null;
       closeSearchDropdown();
       stage.setPointerCapture?.(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -2121,7 +2340,7 @@
         const pts = Array.from(pointers.values());
         const d = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         if (prevPinchDist && d > 8) {
-          camDist = clamp(camDist * (prevPinchDist / d), 1.035, 4.2);
+          camDist = clamp(camDist * (prevPinchDist / d), 1.035, 7.2);
         }
         prevPinchDist = d;
       }
@@ -2149,7 +2368,7 @@
         e.preventDefault();
         flyAnim = null;
         const factor = Math.exp(e.deltaY * 0.0011);
-        camDist = clamp(camDist * factor, 1.035, 4.2);
+        camDist = clamp(camDist * factor, 1.035, 7.2);
       },
       { passive: false }
     );
@@ -2375,6 +2594,10 @@
     const _camUnit = new THREE.Vector3();
     const _worldVec = new THREE.Vector3();
     const _surfaceVec = new THREE.Vector3();
+    const _earthWorldQuat = new THREE.Quaternion();
+    const _invTiltQuat = new THREE.Quaternion();
+    const _camInTilt = new THREE.Vector3();
+    const _poleVec = new THREE.Vector3();
 
     function projectToScreen(vec3, width, height) {
       _projVec.copy(vec3).project(camera);
@@ -2390,10 +2613,11 @@
       const h = window.innerHeight;
       _camUnit.copy(camera.position).normalize();
       const horizonCos = 1.0 / camDist;
+      earthGroup.getWorldQuaternion(_earthWorldQuat);
 
       // Präzise Oberflächen-Marker (R = 1.001, Null Parallaxe)
       for (const pin of activePins) {
-        _worldVec.copy(pin.localNormal).applyQuaternion(earthGroup.quaternion);
+        _worldVec.copy(pin.localNormal).applyQuaternion(_earthWorldQuat);
         const frontDot = _worldVec.dot(_camUnit);
         if (frontDot < horizonCos - 0.012) {
           pin.markerEl.style.opacity = '0';
@@ -2421,13 +2645,17 @@
         pin.markerEl.style.transform = `translate3d(${pt.x.toFixed(1)}px, ${pt.y.toFixed(1)}px, 0)`;
       }
 
-      // Breitenkreis-Labels (vordere Welt-Länge unter Kamera)
+      // Breitenkreis-Labels (vordere Länge im geneigten Erd-Koordinatensystem)
+      _invTiltQuat.copy(earthTiltGroup.quaternion).invert();
+      _camInTilt.copy(_camUnit).applyQuaternion(_invTiltQuat);
+      const camTiltLon = vec3ToLatLon(_camInTilt).lon;
+
       for (const item of lineLabels) {
         if (!linesGroup.visible) {
           item.el.style.opacity = '0';
           continue;
         }
-        const pos = latLonToVec3(item.lat, camWorldLon, 1.004);
+        const pos = latLonToVec3(item.lat, camTiltLon, 1.004).applyQuaternion(earthTiltGroup.quaternion);
         const dot = pos.clone().normalize().dot(_camUnit);
         if (dot < horizonCos + 0.08) {
           item.el.style.opacity = '0';
@@ -2442,10 +2670,19 @@
         item.el.style.transform = `translate3d(${(pt.x - 20).toFixed(1)}px, ${(pt.y - 10).toFixed(1)}px, 0)`;
       }
 
-      // Nord-/Südpol-Badges auf der Achse
-      if (axisGroup.visible) {
-        const nPt = projectToScreen(new THREE.Vector3(0, 1.35, 0), w, h);
-        const sPt = projectToScreen(new THREE.Vector3(0, -1.35, 0), w, h);
+      // Nord-/Südpol-Badges & 23.5°-Neigungswinkel-Badge auf der Achse
+      if (axisVisible) {
+        _poleVec.set(0, 1.31, 0).applyQuaternion(earthTiltGroup.quaternion);
+        const nPt = projectToScreen(_poleVec, w, h);
+        _poleVec.set(0, -1.31, 0).applyQuaternion(earthTiltGroup.quaternion);
+        const sPt = projectToScreen(_poleVec, w, h);
+
+        const midAngle = (currentSun.obliqCorr * RAD) * 0.5;
+        _poleVec.set(Math.sin(midAngle) * 1.24, Math.cos(midAngle) * 1.24, 0);
+        const tiltPt = projectToScreen(_poleVec, w, h);
+        _poleVec.set(0, 1.24, 0);
+        const vertPt = projectToScreen(_poleVec, w, h);
+
         if (nPt) {
           northPoleBadge.style.opacity = '1';
           northPoleBadge.style.transform = `translate3d(${(nPt.x - 12).toFixed(1)}px, ${(nPt.y - 12).toFixed(1)}px, 0)`;
@@ -2458,15 +2695,29 @@
         } else {
           southPoleBadge.style.opacity = '0';
         }
+        if (tiltPt) {
+          let tx = tiltPt.x;
+          let ty = tiltPt.y;
+          // Bei starker perspektivischer Verkürzung (z. B. 21. Mär / 23. Sep) Abstand zum N-Badge sichern
+          if (nPt && Math.hypot(tx - nPt.x, ty - nPt.y) < 48) {
+            const awaySign = vertPt && nPt.x >= vertPt.x ? -1 : 1;
+            tx = (vertPt ? vertPt.x : tx) + awaySign * 30;
+          }
+          tiltBadge.style.opacity = '1';
+          tiltBadge.style.transform = `translate3d(${tx.toFixed(1)}px, ${ty.toFixed(1)}px, 0) translate(-50%, -50%)`;
+        } else {
+          tiltBadge.style.opacity = '0';
+        }
       } else {
         northPoleBadge.style.opacity = '0';
         southPoleBadge.style.opacity = '0';
+        tiltBadge.style.opacity = '0';
       }
     }
 
-    // Initiale Sonnenberechnung & Europa/Afrika ins Sichtfeld setzen
+    // Initiale Sonnenberechnung: Seitenansicht auf Tag-/Nachtgrenze & 23.5°-Achsenneigung
     updateTimeReadoutAndSun('init');
-    camWorldLon = wrapLon(12 + earthGroup.rotation.y * DEG);
+    camWorldLon = wrapLon(currentSunWorldLon - 75);
 
     let lastFrameTime = performance.now();
 
@@ -2474,6 +2725,26 @@
       requestAnimationFrame(animate);
       const dt = Math.min(0.05, (nowMs - lastFrameTime) / 1000);
       lastFrameTime = nowMs;
+
+      // Sanfter Übergang beim Klick auf Jahreszeiten-Buttons (21. Mär / 21. Jun / 23. Sep / 21. Dez)
+      if (dateAnim) {
+        const tRaw = clamp((nowMs - dateAnim.startTime) / dateAnim.duration, 0, 1);
+        const t = tRaw < 0.5 ? 4 * tRaw * tRaw * tRaw : 1 - Math.pow(-2 * tRaw + 2, 3) / 2;
+        dateAnim.currentDay = dateAnim.startDay + dateAnim.deltaDays * t;
+        if (dateAnim.targetMezMinutes !== null) {
+          simMezMinutes = dateAnim.startMezMinutes + (dateAnim.targetMezMinutes - dateAnim.startMezMinutes) * t;
+        }
+        if (tRaw >= 1) {
+          simDayOfYear = dateAnim.targetDay;
+          if (dateAnim.targetMezMinutes !== null) {
+            simMezMinutes = dateAnim.targetMezMinutes;
+          }
+          dateAnim = null;
+          updateTimeReadoutAndSun('date');
+        } else {
+          updateTimeReadoutAndSun('date', dateAnim.currentDay);
+        }
+      }
 
       // Zeitraffer: 90 simulierte Minuten pro Sekunde (24h in 16s)
       if (isPlaying) {
@@ -2493,10 +2764,10 @@
       if (flyAnim) {
         const tRaw = clamp((nowMs - flyAnim.startTime) / flyAnim.duration, 0, 1);
         const t = tRaw < 0.5 ? 4 * tRaw * tRaw * tRaw : 1 - Math.pow(-2 * tRaw + 2, 3) / 2;
-        const dGeoLon = shortestLonDelta(flyAnim.startGeoLon, flyAnim.targetGeoLon);
-        const curGeoLon = wrapLon(flyAnim.startGeoLon + dGeoLon * t);
-        camLat = flyAnim.startLat + (flyAnim.targetGeoLat - flyAnim.startLat) * t;
-        camWorldLon = wrapLon(curGeoLon + earthGroup.rotation.y * DEG);
+        const targetWorld = geoToWorldLatLon(flyAnim.targetGeoLat, flyAnim.targetGeoLon);
+        const dLon = shortestLonDelta(flyAnim.startWorldLon, targetWorld.lon);
+        camLat = clamp(flyAnim.startLat + (targetWorld.lat - flyAnim.startLat) * t, -89.5, 89.5);
+        camWorldLon = wrapLon(flyAnim.startWorldLon + dLon * t);
         camDist = flyAnim.startDist + (flyAnim.targetDist - flyAnim.startDist) * t;
         if (tRaw >= 1) flyAnim = null;
       } else if (pointers.size === 0 && (Math.abs(velLat) > 0.002 || Math.abs(velLon) > 0.002)) {
@@ -2508,11 +2779,13 @@
       }
 
       // Kamera und Erdrota-Matrizen vor Kachel-Abfrage, Render & Punkt-Projektion synchronisieren
+      // Bei weiter Übersicht leicht nach oben versetzen, damit Kugel, Achse & S-Badge frei über dem Dock stehen
+      const dockShift = clamp((camDist - 2.4) / 1.8, 0, 1) * -0.08;
       camera.position.copy(latLonToVec3(camLat, camWorldLon, camDist));
       camera.up.set(0, 1, 0);
-      camera.lookAt(0, 0, 0);
+      camera.lookAt(0, dockShift, 0);
       earthUniforms.camPos.value.copy(camera.position);
-      earthGroup.updateMatrixWorld(true);
+      earthTiltGroup.updateMatrixWorld(true);
       camera.updateMatrixWorld(true);
 
       // Satellitenkacheln aktualisieren & weich einblenden
