@@ -242,7 +242,7 @@
       gap: 8px;
       width: min(340px, calc(100vw - 210px));
       min-width: 190px;
-      pointer-events: auto;
+      pointer-events: none;
     }
 
     .glass {
@@ -260,6 +260,7 @@
       padding: 0 8px 0 12px;
       border-radius: 14px;
       gap: 8px;
+      pointer-events: auto;
       transition: border-color 0.18s ease, background 0.18s ease;
     }
 
@@ -327,6 +328,7 @@
       border-radius: 14px;
       padding: 5px;
       display: none;
+      pointer-events: auto;
       z-index: 30;
     }
 
@@ -394,12 +396,16 @@
 
     .pins-bar {
       display: flex;
-      flex-wrap: nowrap;
+      flex-direction: column;
+      align-items: flex-start;
       gap: 6px;
-      overflow-x: auto;
+      max-height: min(44vh, 280px);
+      overflow-y: auto;
+      overflow-x: hidden;
       scrollbar-width: none;
       -webkit-overflow-scrolling: touch;
       padding-bottom: 2px;
+      pointer-events: none;
     }
 
     .pins-bar::-webkit-scrollbar {
@@ -409,6 +415,7 @@
     .pin-chip {
       height: 36px;
       min-height: 36px;
+      max-width: 100%;
       flex: none;
       display: inline-flex;
       align-items: center;
@@ -422,18 +429,26 @@
       color: var(--text);
       font-size: 13.5px;
       font-weight: 500;
+      pointer-events: auto;
     }
 
     .pin-chip-go {
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      min-width: 0;
       border: 0;
       background: transparent;
       color: inherit;
       font: inherit;
       padding: 4px 2px;
       cursor: pointer;
+    }
+
+    .pin-chip-go span:last-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .pin-dot {
